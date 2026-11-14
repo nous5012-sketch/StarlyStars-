@@ -18,7 +18,6 @@ router = Router()
 # --- Стани (FSM) ---
 class OrderState(StatesGroup):
   waiting_for_screenshot = State()
-  waiting_for_custom_stars = State()
 
 
 class SupportState(StatesGroup):
@@ -244,64 +243,23 @@ async def process_stars_buy(callback: types.CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data == "custom_stars")
-async def custom_stars_prompt(callback: types.CallbackQuery, state: FSMContext):
-  await state.set_state(OrderState.waiting_for_custom_stars)
-  await callback.message.edit_text(
-      "Введіть бажану кількість зірок (цифрами):\n\n"
-      "Або напишіть власнику напряму: @Mk_Bars",
-      reply_markup=back_button(),
-  )
-  await callback.answer()
-
-
-@router.message(OrderState.waiting_for_custom_stars)
-async def calculate_custom_stars(message: types.Message):
-  if not message.text or not message.text.isdigit():
-    await message.answer(
-        "Будь ласка, введіть число (кількість зірок), або натисніть Назад."
-    )
-    return
-
-  count = int(message.text)
-  price = int(round(count * 0.78))
-
+async def custom_stars_prompt(callback: types.CallbackQuery):
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
               InlineKeyboardButton(
-                  text=f"💳 Оплатити {price} грн",
-                  callback_data=f"pay_custom_{count}_{price}",
+                  text="💬 Написати адміністратору", url="https://t.me/Mk_Bars"
               )
           ],
           [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_home")],
       ]
   )
-  await message.answer(
-      f"Кількість: {count} зірок\n"
-      f"Ціна: {price} грн\n\n"
-      f"Натисніть кнопку нижче для переходу до реквізитів:",
+  await callback.message.edit_text(
+      "🔄 **Своя кількість зірок**\n\n"
+      "Щоб придбати іншу кількість зірок, будь ласка, напишіть нашому адміністратору напряму:",
       reply_markup=kb,
+      parse_mode="Markdown",
   )
-
-
-@router.callback_query(F.data.startswith("pay_custom_"))
-async def pay_custom_stars(callback: types.CallbackQuery, state: FSMContext):
-  _, _, count, price = callback.data.split("_")
-  text = (
-      f"Кількість: {count} зірок\n"
-      f"Ціна: {price} грн\n\n"
-      f"Реквізити карти для оплати:\n"
-      f"5168745149435791\n"
-      f"Шевченко М.\n\n"
-      f"Після оплати, скиньте скріншот оплати сюди та очікуйте підтвердження."
-  )
-  await state.set_state(OrderState.waiting_for_screenshot)
-  await state.update_data(
-      item=f"{count} зірок ({price} грн)",
-      stars_add=int(count),
-      prem_add=0,
-  )
-  await callback.message.edit_text(text, reply_markup=back_button())
   await callback.answer()
 
 
@@ -559,4 +517,4 @@ async def main():
 if __name__ == "__main__":
   logging.basicConfig(level=logging.INFO, stream=sys.stdout)
   asyncio.run(main())
-                
+  
