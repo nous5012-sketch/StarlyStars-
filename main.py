@@ -10,34 +10,75 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 TOKEN = "9113395557:AAHhrbAONJcW4Gl5gXfsPIcgSxmJLQeWMrQ"
 ADMIN_ID = 7648928411  # Ваш Telegram ID
+CHANNEL_USERNAME = "@StarlyStars_UKR"  # Ваш канал для перевірки підписки
 
 router = Router()
 
 
-# Стани для FSM
+# --- Стани (FSM) ---
 class OrderState(StatesGroup):
   waiting_for_screenshot = State()
+  waiting_for_custom_stars = State()
 
 
 class SupportState(StatesGroup):
   waiting_for_message = State()
 
 
-# База даних у пам'яті для профілю
+class ReviewState(StatesGroup):
+  waiting_for_review_text = State()
+
+
+class CalcState(StatesGroup):
+  waiting_for_calc_input = State()
+
+
+# --- База даних у пам'яті ---
 user_profiles = {}
 
 
-def get_profile(user_id: int):
+def get_profile(user_id: int, user_name: str = "Користувач"):
   if user_id not in user_profiles:
     user_profiles[user_id] = {
         "stars_bought": 0,
         "prem_bought": 0,
         "reg_date": "Сьогодні",
+        "name": user_name,
     }
   return user_profiles[user_id]
 
 
-# --- Головне меню (Кнопки знизу) ---
+# --- Перевірка підписки на канал ---
+async def check_subscription(user_id: int, bot: Bot) -> bool:
+  try:
+    member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
+    # Статуси, які означають, що користувач підписаний
+    if member.status in ["creator", "administrator", "member"]:
+      return True
+  except Exception:
+    pass
+  return False
+
+
+# Клавіатура для перевірки підписки
+def sub_check_keyboard():
+  return InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="📢 Підписатися на канал", url="https://t.me/StarlyStars_UKR"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="✅ Перевірити підписку", callback_data="check_sub_action"
+              )
+          ],
+      ]
+  )
+
+
+# --- Головне меню ---
 def main_menu():
   return types.ReplyKeyboardMarkup(
       keyboard=[
@@ -46,10 +87,13 @@ def main_menu():
               types.KeyboardButton(text="💎 Telegram Premium"),
           ],
           [
+              types.KeyboardButton(text="🧮 Калькулятор"),
               types.KeyboardButton(text="👤 Профіль"),
-              types.KeyboardButton(text="🛠 Підтримка"),
           ],
-          [types.KeyboardButton(text="💬 Відгуки")],
+          [
+              types.KeyboardButton(text="🛠 Підтримка"),
+              types.KeyboardButton(text="💬 Відгуки"),
+          ],
       ],
       resize_keyboard=True,
   )
@@ -63,17 +107,60 @@ def back_button():
 
 
 @router.message(Command("start"))
-async def cmd_start(message: types.Message, state: FSMContext):
+async def cmd_start(message: types.Message, state: FSMContext, bot: Bot):
   await state.clear()
-  get_profile(message.from_user.id)
+  user_id = message.from_user.id
+  get_profile(user_id, message.from_user.full_name)
+
+  # Перевірка підписки
+  if not await check_subscription(user_id, bot):
+    await message.answer(
+        "⚠️ Для використання бота необхідно підписатися на наш канал!\n\n"
+        f"Підпишіться на {CHANNEL_USERNAME} та натисніть кнопку перевірки:",
+        reply_markup=sub_check_keyboard(),
+    )
+    return
+
   await message.answer(
       "Вітаємо в StarlyStars ⭐. Що бажаєте придбати?", reply_markup=main_menu()
   )
 
 
+@router.callback_query(F.data == "check_sub_action")
+async def verify_sub_cb(callback: types.CallbackQuery, bot: Bot):
+  user_id = callback.from_user.id
+  if await check_subscription(user_id, bot):
+    await callback.message.delete()
+    await callback.message.answer(
+        "Дякуємо за підписку! Вітаємо в StarlyStars ⭐. Що бажаєте придбати?",
+        reply_markup=main_menu(),
+    )
+  else:
+    await callback.answer(
+        "❌ Ви ще не підписалися на канал!", show_alert=True
+    )
+
+
+# Захист усіх текстових подій перевіркою підписки
+@router.message()
+async def check_all_messages(message: types.Message, state: FSMContext, bot: Bot):
+  user_id = message.from_user.id
+  if not await check_subscription(user_id, bot):
+    await message.answer(
+        "⚠️ Доступ обмежено! Підпишіться на канал, щоб користуватися ботом:",
+        reply_markup=sub_check_keyboard(),
+    )
+    return
+
+  # Якщо підписаний, але це звичайний текст поза станами — ігноруємо або реагуємо на кнопки з меню
+  # Оскільки хендлери нижче спрацьовують по тексту кнопок, тут можна залишити порожнім або обробити інші речі.
+
+
 # Кнопка Відгуки
 @router.message(F.text == "💬 Відгуки")
-async def btn_reviews(message: types.Message):
+async def btn_reviews(message: types.Message, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    return
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -87,9 +174,11 @@ async def btn_reviews(message: types.Message):
   await message.answer("Наші відгуки:", reply_markup=kb)
 
 
-# --- Каталог Telegram Stars (повний з картинки) ---
+# --- Каталог Telegram Stars ---
 @router.message(F.text == "⭐ Telegram Stars")
-async def catalog_stars(message: types.Message):
+async def catalog_stars(message: types.Message, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    return
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -159,23 +248,83 @@ async def process_stars_buy(callback: types.CallbackQuery, state: FSMContext):
       f"Після оплати, скиньте скріншот оплати сюди та очікуйте підтвердження."
   )
   await state.set_state(OrderState.waiting_for_screenshot)
-  await state.update_data(item=f"{count} зірок ({price} грн)")
+  await state.update_data(
+      item=f"{count} зірок ({price} грн)",
+      stars_add=int(count),
+      prem_add=0,
+  )
   await callback.message.edit_text(text, reply_markup=back_button())
   await callback.answer()
 
 
 @router.callback_query(F.data == "custom_stars")
-async def custom_stars_info(callback: types.CallbackQuery):
+async def custom_stars_prompt(callback: types.CallbackQuery, state: FSMContext):
+  await state.set_state(OrderState.waiting_for_custom_stars)
   await callback.message.edit_text(
-      "Для придбання своєї кількості зірок, напишіть власнику магазину @Mk_Bars",
+      "Введіть бажану кількість зірок (цифрами):\n\n"
+      "Або напишіть власнику напряму: @Mk_Bars",
       reply_markup=back_button(),
   )
   await callback.answer()
 
 
+@router.message(OrderState.waiting_for_custom_stars)
+async def calculate_custom_stars(message: types.Message, state: FSMContext):
+  if not message.text.isdigit():
+    await message.answer(
+        "Будь ласка, введіть число (кількість зірок), або натисніть Назад."
+    )
+    return
+
+  count = int(message.text)
+  # Розрахунок ціни (базова ціна ~0.75 грн за зірку, з округленням)
+  price = max(10, int(count * 0.75))
+
+  kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text=f"💳 Оплатити {price} грн",
+                  callback_data=f"pay_custom_{count}_{price}",
+              )
+          ],
+          [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_home")],
+      ]
+  )
+  await message.answer(
+      f"Кількість: {count} зірок\n"
+      f"Ціна: {price} грн\n\n"
+      f"Натисніть кнопку нижче для переходу до реквізитів:",
+      reply_markup=kb,
+  )
+
+
+@router.callback_query(F.data.startswith("pay_custom_"))
+async def pay_custom_stars(callback: types.CallbackQuery, state: FSMContext):
+  _, _, count, price = callback.data.split("_")
+  text = (
+      f"Кількість: {count} зірок\n"
+      f"Ціна: {price} грн\n\n"
+      f"Реквізити карти для оплати:\n"
+      f"5168745149435791\n"
+      f"Шевченко М.\n\n"
+      f"Після оплати, скиньте скріншот оплати сюди та очікуйте підтвердження."
+  )
+  await state.set_state(OrderState.waiting_for_screenshot)
+  await state.update_data(
+      item=f"{count} зірок ({price} грн)",
+      stars_add=int(count),
+      prem_add=0,
+  )
+  await callback.message.edit_text(text, reply_markup=back_button())
+  await callback.answer()
+
+
 # --- Каталог Telegram Premium ---
 @router.message(F.text == "💎 Telegram Premium")
-async def catalog_prem(message: types.Message):
+async def catalog_prem(message: types.Message, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    return
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -201,15 +350,56 @@ async def process_prem_buy(callback: types.CallbackQuery, state: FSMContext):
       f"Після оплати, скиньте скріншот оплати сюди та очікуйте підтвердження."
   )
   await state.set_state(OrderState.waiting_for_screenshot)
-  await state.update_data(item=f"Premium {period} ({price} грн)")
+  await state.update_data(
+      item=f"Premium {period} ({price} грн)", stars_add=0, prem_add=1
+  )
   await callback.message.edit_text(text, reply_markup=back_button())
   await callback.answer()
 
 
+# --- Калькулятор (Зірки <-> Гривні) ---
+@router.message(F.text == "🧮 Калькулятор")
+async def calc_menu(message: types.Message, state: FSMContext, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    return
+  await state.set_state(CalcState.waiting_for_calc_input)
+  await message.answer(
+      "🧮 **Калькулятор цін StarlyStars**\n\n"
+      "Введіть кількість зірок (наприклад: `500`) або суму в гривнях (додавши знак грн або просто число, наприклад `385 грн`), і я порахую відповідне значення!",
+      reply_markup=back_button(),
+      parse_mode="Markdown",
+  )
+
+
+@router.message(CalcState.waiting_for_calc_input)
+async def process_calc(message: types.Message):
+  text_cleaned = message.text.lower().replace("грн", "").strip()
+  if not text_cleaned.isdigit():
+    await message.answer("Будь ласка, введіть число (наприклад, 100 або 500 грн).")
+    return
+
+  val = int(text_cleaned)
+  # Якщо ввели схоже на гривні (більше ніж зазвичай зірок за 1 грн, або розрізнимо логіку)
+  # Повернемо обидва варіанти для зручності:
+  stars_approx = int(val / 0.75)
+  UAH_approx = int(val * 0.75)
+
+  await message.answer(
+      f"📊 **Результат розрахунку для `{val}`:**\n\n"
+      f"⭐ Якщо це **зірки**: ~`{UAH_approx}` грн\n"
+      f"💵 Якщо це **гривні**: ~`{stars_approx}` зірок\n\n"
+      "*(Точні ціни фіксовані в каталозі зірок)*",
+      parse_mode="Markdown",
+      reply_markup=back_button(),
+  )
+
+
 # --- Профіль ---
 @router.message(F.text == "👤 Профіль")
-async def profile_handler(message: types.Message):
-  p = get_profile(message.from_user.id)
+async def profile_handler(message: types.Message, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    return
+  p = get_profile(message.from_user.id, message.from_user.full_name)
   text = (
       f"👤 **Ваш профіль:**\n\n"
       f"🆔 Номер акаунту (ID): `{message.from_user.id}`\n"
@@ -222,7 +412,9 @@ async def profile_handler(message: types.Message):
 
 # --- Підтримка ---
 @router.message(F.text == "🛠 Підтримка")
-async def support_handler(message: types.Message, state: FSMContext):
+async def support_handler(message: types.Message, state: FSMContext, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    return
   await state.set_state(SupportState.waiting_for_message)
   await message.answer(
       "Напишіть будь ласка вашу проблему, адміністрація зв'яжеться з вами якомога скоріше.",
@@ -258,9 +450,11 @@ async def send_support_to_admin(message: types.Message, state: FSMContext, bot: 
 async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot):
   data = await state.get_data()
   item = data.get("item", "Товар")
+  stars_add = data.get("stars_add", 0)
+  prem_add = data.get("prem_add", 0)
+
   user_id = message.from_user.id
   user_name = message.from_user.full_name
-
   photo_id = message.photo[-1].file_id
 
   admin_caption = (
@@ -268,11 +462,13 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
       f"Користувач: {user_name} (ID: `{user_id}`)\n"
       f"Товар: {item}"
   )
+  # Передаємо у callback_data дані для нарахування при схваленні: approve_USERID_STARS_PREM
   admin_kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
               InlineKeyboardButton(
-                  text="✅ Успішно", callback_data=f"approve_{user_id}"
+                  text="✅ Успішно",
+                  callback_data=f"approve_{user_id}_{stars_add}_{prem_add}",
               ),
               InlineKeyboardButton(
                   text="❌ Відхилено", callback_data=f"decline_{user_id}"
@@ -282,7 +478,11 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
   )
 
   await bot.send_photo(
-      ADMIN_ID, photo=photo_id, caption=admin_caption, reply_markup=admin_kb, parse_mode="Markdown"
+      ADMIN_ID,
+      photo=photo_id,
+      caption=admin_caption,
+      reply_markup=admin_kb,
+      parse_mode="Markdown",
   )
   await state.clear()
   await message.answer(
@@ -294,10 +494,37 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
 # --- Адмін управління (Успішно / Відхилено) ---
 @router.callback_query(F.data.startswith("approve_"))
 async def admin_approve(callback: types.CallbackQuery, bot: Bot):
-  user_id = int(callback.data.split("_")[1])
-  await bot.send_message(
-      user_id, "✅ Ваша оплата успішна! Зірки/Преміум скоро будуть нараховані."
+  parts = callback.data.split("_")
+  user_id = int(parts[1])
+  stars_add = int(parts[2])
+  prem_add = int(parts[3])
+
+  # Оновлюємо профіль користувача (тільки схвалені)
+  p = get_profile(user_id)
+  p["stars_bought"] += stars_add
+  p["prem_bought"] += prem_add
+
+  # Повідомлення користувачу з запитом про відгук
+  review_kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="✅ Так", callback_data=f"leave_review_yes_{user_id}"
+              ),
+              InlineKeyboardButton(
+                  text="❌ Ні", callback_data=f"leave_review_no_{user_id}"
+              ),
+          ]
+      ]
   )
+
+  await bot.send_message(
+      user_id,
+      "✅ Ваша оплата успішна! Зірки/Преміум нараховані у ваш профіль.\n\n"
+      "Бажаєте залишити відгук?",
+      reply_markup=review_kb,
+  )
+
   await callback.message.edit_caption(
       caption=callback.message.caption
       + "\n\n**[СТАТУС: ОПЛАТУ СХВАЛЕНО ✅]**",
@@ -320,7 +547,42 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
   await callback.answer("Ви відхилили оплату.")
 
 
-# Повернення в головне меню
+# --- Обробка запиту на відгук ---
+@router.callback_query(F.data.startswith("leave_review_yes_"))
+async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext):
+  await state.set_state(ReviewState.waiting_for_review_text)
+  await callback.message.edit_text(
+      "Напишіть ваш відгук нижче у повідомленні:"
+  )
+  await callback.answer()
+
+
+@router.callback_query(F.data.startswith("leave_review_no_"))
+async def review_no_cb(callback: types.CallbackQuery):
+  await callback.message.edit_text(
+      "Дякуємо, що обрали StarlyStars ❤️\nГарного дня 💋"
+  )
+  await callback.answer()
+
+
+@router.message(ReviewState.waiting_for_review_text)
+async def receive_review_text(message: types.Message, state: FSMContext, bot: Bot):
+  user_name = message.from_user.full_name
+  user_id = message.from_user.id
+
+  text = (
+      f"💬 **Новий відгук від покупця!**\n\n"
+      f"Від: {user_name} (ID: `{user_id}`)\n"
+      f"Відгук: {message.text}"
+  )
+  await bot.send_message(ADMIN_ID, text, parse_mode="Markdown")
+  await state.clear()
+  await message.answer(
+      "Дякуємо за відгук ❤️\nГарного дня 💋", reply_markup=main_menu()
+  )
+
+
+# --- Повернення в головне меню ---
 @router.callback_query(F.data == "back_home")
 async def back_home_cb(callback: types.CallbackQuery, state: FSMContext):
   await state.clear()
@@ -343,3 +605,4 @@ async def main():
 if __name__ == "__main__":
   logging.basicConfig(level=logging.INFO, stream=sys.stdout)
   asyncio.run(main())
+  
