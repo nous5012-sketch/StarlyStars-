@@ -10,7 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 TOKEN = "9113395557:AAHhrbAONJcW4Gl5gXfsPIcgSxmJLQeWMrQ"
 ADMIN_ID = 7648928411  # Ваш Telegram ID
-CHANNEL_USERNAME = "@StarlyStars_UKR"  # Ваш канал
+CHANNEL_USERNAME = "@StarlyStars_UKR"  # Ваш канал для перевірки підписки
 
 router = Router()
 
@@ -29,10 +29,6 @@ class ReviewState(StatesGroup):
   waiting_for_review_text = State()
 
 
-class CalcState(StatesGroup):
-  waiting_for_calc_input = State()
-
-
 # --- База даних у пам'яті ---
 user_profiles = {}
 
@@ -48,18 +44,34 @@ def get_profile(user_id: int, user_name: str = "Користувач"):
   return user_profiles[user_id]
 
 
-# --- Безпечна перевірка підписки ---
+# --- Жорстка перевірка підписки на канал ---
 async def check_subscription(user_id: int, bot: Bot) -> bool:
   try:
     member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
-    if member.status in ["creator", "administrator", "member"]:
-      return True
+    return member.status in ["creator", "administrator", "member"]
+  except Exception as e:
+    logging.error(f"Помилка перевірки підписки (перевірте чи бот адмін у каналі): {e}")
     return False
-  except Exception:
-    return True
 
 
-# --- Головне меню ---
+def sub_check_keyboard():
+  return InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="📢 Підписатися на канал", url="https://t.me/StarlyStars_UKR"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="✅ Перевірити підписку", callback_data="check_sub_action"
+              )
+          ],
+      ]
+  )
+
+
+# --- Головне меню (без Калькулятора) ---
 def main_menu():
   return types.ReplyKeyboardMarkup(
       keyboard=[
@@ -68,13 +80,10 @@ def main_menu():
               types.KeyboardButton(text="💎 Telegram Premium"),
           ],
           [
-              types.KeyboardButton(text="🧮 Калькулятор"),
               types.KeyboardButton(text="👤 Профіль"),
-          ],
-          [
               types.KeyboardButton(text="🛠 Підтримка"),
-              types.KeyboardButton(text="💬 Відгуки"),
           ],
+          [types.KeyboardButton(text="💬 Відгуки")],
       ],
       resize_keyboard=True,
   )
@@ -95,25 +104,10 @@ async def cmd_start(message: types.Message, state: FSMContext, bot: Bot):
   get_profile(user_id, message.from_user.full_name)
 
   if not await check_subscription(user_id, bot):
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📢 Підписатися на канал",
-                    url="https://t.me/StarlyStars_UKR",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="✅ Перевірити підписку", callback_data="check_sub_action"
-                )
-            ],
-        ]
-    )
     await message.answer(
         "⚠️ Для використання бота необхідно підписатися на наш канал!\n\n"
         f"Підпишіться на {CHANNEL_USERNAME} та натисніть кнопку перевірки:",
-        reply_markup=kb,
+        reply_markup=sub_check_keyboard(),
     )
     return
 
@@ -122,6 +116,7 @@ async def cmd_start(message: types.Message, state: FSMContext, bot: Bot):
   )
 
 
+# --- Обробка кнопки "Перевірити підписку" ---
 @router.callback_query(F.data == "check_sub_action")
 async def verify_sub_cb(callback: types.CallbackQuery, bot: Bot):
   user_id = callback.from_user.id
@@ -134,6 +129,7 @@ async def verify_sub_cb(callback: types.CallbackQuery, bot: Bot):
         "Дякуємо за підписку! Вітаємо в StarlyStars ⭐. Що бажаєте придбати?",
         reply_markup=main_menu(),
     )
+    await callback.answer()
   else:
     await callback.answer(
         "❌ Ви ще не підписалися на канал!", show_alert=True
@@ -142,7 +138,12 @@ async def verify_sub_cb(callback: types.CallbackQuery, bot: Bot):
 
 # --- Кнопка Відгуки ---
 @router.message(F.text == "💬 Відгуки")
-async def btn_reviews(message: types.Message):
+async def btn_reviews(message: types.Message, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    await message.answer(
+        "⚠️ Спочатку підпишіться на канал!", reply_markup=sub_check_keyboard()
+    )
+    return
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -158,7 +159,12 @@ async def btn_reviews(message: types.Message):
 
 # --- Каталог Telegram Stars ---
 @router.message(F.text == "⭐ Telegram Stars")
-async def catalog_stars(message: types.Message):
+async def catalog_stars(message: types.Message, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    await message.answer(
+        "⚠️ Спочатку підпишіться на канал!", reply_markup=sub_check_keyboard()
+    )
+    return
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -249,32 +255,15 @@ async def custom_stars_prompt(callback: types.CallbackQuery, state: FSMContext):
 
 
 @router.message(OrderState.waiting_for_custom_stars)
-async def calculate_custom_stars(message: types.Message, state: FSMContext):
-  if not message.text.isdigit():
+async def calculate_custom_stars(message: types.Message):
+  if not message.text or not message.text.isdigit():
     await message.answer(
         "Будь ласка, введіть число (кількість зірок), або натисніть Назад."
     )
     return
 
   count = int(message.text)
-  if count <= 50:
-    price = count * 0.80
-  elif count <= 100:
-    price = count * 0.80
-  elif count <= 250:
-    price = count * 0.784
-  elif count <= 500:
-    price = count * 0.77
-  elif count <= 1000:
-    price = count * 0.765
-  elif count <= 2500:
-    price = count * 0.756
-  elif count <= 5000:
-    price = count * 0.75
-  else:
-    price = count * 0.749
-
-  price = int(round(price))
+  price = int(round(count * 0.78))
 
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
@@ -318,7 +307,12 @@ async def pay_custom_stars(callback: types.CallbackQuery, state: FSMContext):
 
 # --- Каталог Telegram Premium ---
 @router.message(F.text == "💎 Telegram Premium")
-async def catalog_prem(message: types.Message):
+async def catalog_prem(message: types.Message, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    await message.answer(
+        "⚠️ Спочатку підпишіться на канал!", reply_markup=sub_check_keyboard()
+    )
+    return
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -351,42 +345,14 @@ async def process_prem_buy(callback: types.CallbackQuery, state: FSMContext):
   await callback.answer()
 
 
-# --- Калькулятор ---
-@router.message(F.text == "🧮 Калькулятор")
-async def calc_menu(message: types.Message, state: FSMContext):
-  await state.set_state(CalcState.waiting_for_calc_input)
-  await message.answer(
-      "🧮 **Калькулятор цін StarlyStars**\n\n"
-      "Введіть кількість зірок (наприклад: `500`) або суму в гривнях (наприклад `385 грн`), і я порахую відповідне значення!",
-      reply_markup=back_button(),
-      parse_mode="Markdown",
-  )
-
-
-@router.message(CalcState.waiting_for_calc_input)
-async def process_calc(message: types.Message):
-  text_cleaned = message.text.lower().replace("грн", "").strip()
-  if not text_cleaned.isdigit():
-    await message.answer("Будь ласка, введіть число (наприклад, 100 або 385 грн).")
-    return
-
-  val = int(text_cleaned)
-  stars_approx = int(val / 0.80)
-  UAH_approx = int(val * 0.80)
-
-  await message.answer(
-      f"📊 **Результат розрахунку для `{val}`:**\n\n"
-      f"⭐ Якщо це **зірки**: ~`{UAH_approx}` грн\n"
-      f"💵 Якщо це **гривні**: ~`{stars_approx}` зірок\n\n"
-      "*(Точні ціни пакетів дивіться у каталозі зірок)*",
-      parse_mode="Markdown",
-      reply_markup=back_button(),
-  )
-
-
 # --- Профіль ---
 @router.message(F.text == "👤 Профіль")
-async def profile_handler(message: types.Message):
+async def profile_handler(message: types.Message, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    await message.answer(
+        "⚠️ Спочатку підпишіться на канал!", reply_markup=sub_check_keyboard()
+    )
+    return
   p = get_profile(message.from_user.id, message.from_user.full_name)
   text = (
       f"👤 **Ваш профіль:**\n\n"
@@ -400,7 +366,12 @@ async def profile_handler(message: types.Message):
 
 # --- Підтримка ---
 @router.message(F.text == "🛠 Підтримка")
-async def support_handler(message: types.Message, state: FSMContext):
+async def support_handler(message: types.Message, state: FSMContext, bot: Bot):
+  if not await check_subscription(message.from_user.id, bot):
+    await message.answer(
+        "⚠️ Спочатку підпишіться на канал!", reply_markup=sub_check_keyboard()
+    )
+    return
   await state.set_state(SupportState.waiting_for_message)
   await message.answer(
       "Напишіть будь ласка вашу проблему, адміністрація зв'яжеться з вами якомога скоріше.",
@@ -588,4 +559,4 @@ async def main():
 if __name__ == "__main__":
   logging.basicConfig(level=logging.INFO, stream=sys.stdout)
   asyncio.run(main())
-    
+                
