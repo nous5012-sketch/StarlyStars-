@@ -56,7 +56,6 @@ async def check_subscription(user_id: int, bot: Bot) -> bool:
       return True
     return False
   except Exception:
-    # Якщо бот ще не доданий в адміни каналу, пропускаємо щоб не блокувати роботу
     return True
 
 
@@ -572,5 +571,4 @@ async def main():
 if __name__ == "__main__":
   logging.basicConfig(level=logging.INFO, stream=sys.stdout)
   asyncio.run(main())
-  ,
-      
+                
