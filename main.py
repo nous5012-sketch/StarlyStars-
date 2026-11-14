@@ -31,7 +31,6 @@ class ReviewState(StatesGroup):
 
 # --- База даних у пам'яті ---
 user_profiles = {}
-pending_orders = {}  # Тимчасове сховище для деталей замовлень адміна
 order_counter = 5  # Початковий лічильник замовлень (почнеться з #6)
 
 
@@ -375,23 +374,18 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
   user_name = message.from_user.full_name
   photo_id = message.photo[-1].file_id
 
-  # Зберігаємо дані в пам'ять за унікальним ключем користувача для безпеки кнопок
-  pending_orders[user_id] = {
-      "item": item,
-      "stars_add": stars_add,
-      "prem_add": prem_add,
-  }
-
   admin_caption = (
       f"💰 **Нова оплата!**\n\n"
       f"Користувач: {user_name} (ID: `{user_id}`)\n"
       f"Товар: {item}"
   )
+  # Зашиваємо цифри прямо в callback_data через нижнє підкреслення без зайвих слів
   admin_kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
               InlineKeyboardButton(
-                  text="✅ Успішно", callback_data=f"approve_{user_id}"
+                  text="✅ Успішно",
+                  callback_data=f"approve_{user_id}_{stars_add}_{prem_add}",
               ),
               InlineKeyboardButton(
                   text="❌ Відхилено", callback_data=f"decline_{user_id}"
@@ -418,14 +412,16 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
 @router.callback_query(F.data.startswith("approve_"))
 async def admin_approve(callback: types.CallbackQuery, bot: Bot):
   global order_counter
-  user_id = int(callback.data.split("_")[1])
+  parts = callback.data.split("_")
+  user_id = int(parts[1])
+  stars_add = int(parts[2])
+  prem_add = int(parts[3])
 
-  order_info = pending_orders.get(
-      user_id, {"item": "Товар", "stars_add": 0, "prem_add": 0}
-  )
-  stars_add = order_info["stars_add"]
-  prem_add = order_info["prem_add"]
-  item_name = order_info["item"]
+  # Визначаємо назву товару по кількості зірок або преміуму
+  if prem_add > 0:
+    item_name = "Telegram Premium (6 місяців)"
+  else:
+    item_name = f"{stars_add} зірок"
 
   p = get_profile(user_id)
   p["stars_bought"] += stars_add
@@ -448,15 +444,18 @@ async def admin_approve(callback: types.CallbackQuery, bot: Bot):
       ]
   )
 
-  # Зберігаємо дані у сховище FSM користувача для відгуку
-  fsm_context = FSMContext(
-      storage=bot.get("storage") if hasattr(bot, "get") else callback.bot.fsm_storage if hasattr(callback.bot, "fsm_storage") else MemoryStorage(),
-      key=types.StorageKey(bot_id=bot.id, chat_id=user_id, user_id=user_id),
-  )
-  await fsm_context.set_state(ReviewState.waiting_for_review_text)
-  await fsm_context.update_data(
-      order_num=current_order_id, purchased_item=item_name
-  )
+  # Безпечне створення FSM контексту для нарахування стану відгуку користувачу
+  try:
+    fsm_context = FSMContext(
+        storage=dp.storage,
+        key=types.StorageKey(bot_id=bot.id, chat_id=user_id, user_id=user_id),
+    )
+    await fsm_context.set_state(ReviewState.waiting_for_review_text)
+    await fsm_context.update_data(
+        order_num=current_order_id, purchased_item=item_name
+    )
+  except Exception:
+    pass
 
   await bot.send_message(
       user_id,
@@ -549,9 +548,11 @@ async def back_home_cb(callback: types.CallbackQuery, state: FSMContext):
   await callback.answer()
 
 
+dp = Dispatcher(storage=MemoryStorage())
+
+
 async def main():
   bot = Bot(token=TOKEN)
-  dp = Dispatcher(storage=MemoryStorage())
   dp.include_router(router)
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
