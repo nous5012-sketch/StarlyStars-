@@ -25,9 +25,14 @@ class SupportState(StatesGroup):
   waiting_for_message = State()
 
 
+class ReviewState(StatesGroup):
+  waiting_for_review_text = State()
+
+
 # --- База даних у пам'яті ---
 user_profiles = {}
 order_counter = 5  # Початковий лічильник замовлень (почнеться з #6)
+pending_orders = {}  # Тимчасове сховище деталей замовлень
 
 
 def get_profile(user_id: int, user_name: str = "Користувач"):
@@ -374,7 +379,16 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
   order_counter += 1
   current_order_id = order_counter
 
-  # Формуємо текст замовлення за вашим зразком
+  # Зберігаємо деталі замовлення в пам'ять за ID користувача
+  pending_orders[user_id] = {
+      "user_name": user_name,
+      "order_num": current_order_id,
+      "item": item,
+      "stars_add": stars_add,
+      "prem_add": prem_add,
+  }
+
+  # Формуємо картку замовлення для адміна за вашим шаблоном
   admin_caption = (
       f"Користувач: {user_name}\n"
       f"Замовлення #{current_order_id}\n"
@@ -386,8 +400,7 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
       inline_keyboard=[
           [
               InlineKeyboardButton(
-                  text="✅ Успішно",
-                  callback_data=f"approve_{user_id}_{stars_add}_{prem_add}",
+                  text="✅ Успішно", callback_data=f"approve_{user_id}"
               ),
               InlineKeyboardButton(
                   text="❌ Відхилено", callback_data=f"decline_{user_id}"
@@ -412,18 +425,48 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
 # --- Адмін управління ---
 @router.callback_query(F.data.startswith("approve_"))
 async def admin_approve(callback: types.CallbackQuery, bot: Bot):
-  parts = callback.data.split("_")
-  user_id = int(parts[1])
-  stars_add = int(parts[2])
-  prem_add = int(parts[3])
+  user_id = int(callback.data.split("_")[1])
+
+  order_info = pending_orders.get(
+      user_id,
+      {
+          "user_name": "Користувач",
+          "order_num": 1,
+          "item": "Товар",
+          "stars_add": 0,
+          "prem_add": 0,
+      },
+  )
+
+  stars_add = order_info["stars_add"]
+  prem_add = order_info["prem_add"]
+  order_num = order_info["order_num"]
+  item_name = order_info["item"]
 
   p = get_profile(user_id)
   p["stars_bought"] += stars_add
   p["prem_bought"] += prem_add
 
+  # Кнопки для вибору користувача (залишати відгук чи ні)
+  review_kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="✅ Так",
+                  callback_data=f"leave_review_yes_{user_id}_{order_num}",
+              ),
+              InlineKeyboardButton(
+                  text="❌ Ні", callback_data=f"leave_review_no_{user_id}"
+              ),
+          ]
+      ]
+  )
+
   await bot.send_message(
       user_id,
-      "✅ Ваша оплата успішна! Зірки/Преміум нараховані у ваш профіль.",
+      "✅ Ваша оплата успішна! Зірки/Преміум нараховані у ваш профіль.\n\n"
+      "Бажаєте залишити відгук?",
+      reply_markup=review_kb,
   )
 
   try:
@@ -453,6 +496,66 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
   await callback.answer("Ви відхилили оплату.")
 
 
+# --- Написання відгуку ---
+@router.callback_query(F.data.startswith("leave_review_yes_"))
+async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+  parts = callback.data.split("_")
+  user_id = int(parts[3])
+  order_num = parts[4]
+
+  # Задаємо стан очікування тексту відгуку саме для цього користувача
+  fsm_context = FSMContext(
+      storage=callback.message.bot.fsm_storage
+      if hasattr(callback.message.bot, "fsm_storage")
+      else MemoryStorage(),
+      key=types.StorageKey(bot_id=bot.id, chat_id=user_id, user_id=user_id),
+  )
+  await fsm_context.set_state(ReviewState.waiting_for_review_text)
+  await fsm_context.update_data(order_num=order_num)
+
+  await callback.message.edit_text(
+      "Напишіть ваш відгук нижче у повідомленні:"
+  )
+  await callback.answer()
+
+
+@router.callback_query(F.data.startswith("leave_review_no_"))
+async def review_no_cb(callback: types.CallbackQuery):
+  await callback.message.edit_text(
+      "Дякуємо, що обрали StarlyStars ❤️\nГарного дня 💋"
+  )
+  await callback.answer()
+
+
+@router.message(ReviewState.waiting_for_review_text)
+async def receive_review_text(message: types.Message, state: FSMContext, bot: Bot):
+  data = await state.get_data()
+  order_num = data.get("order_num", "1")
+
+  user_id = message.from_user.id
+  user_name = message.from_user.full_name
+  review_text = message.text
+
+  # Дістаємо інформацію про куплений товар з попередніх збережених замовлень
+  order_info = pending_orders.get(user_id, {"item": "Зірки / Преміум"})
+  purchased_item = order_info["item"]
+
+  # Формуємо готовий блок відгуку для адміністратора
+  formatted_review = (
+      f"Користувач: {user_name}\n"
+      f"Замовлення #{order_num}\n"
+      f"Кількість: {purchased_item}\n"
+      f"Відгук: {review_text}\n"
+      f"Продавець: {BOT_USERNAME}"
+  )
+
+  await bot.send_message(ADMIN_ID, formatted_review)
+  await state.clear()
+  await message.answer(
+      "Дякуємо за відгук ❤️\nГарного дня 💋", reply_markup=main_menu()
+  )
+
+
 # --- Повернення в головне меню ---
 @router.callback_query(F.data == "back_home")
 async def back_home_cb(callback: types.CallbackQuery, state: FSMContext):
@@ -476,4 +579,4 @@ async def main():
 if __name__ == "__main__":
   logging.basicConfig(level=logging.INFO, stream=sys.stdout)
   asyncio.run(main())
-    
+  
