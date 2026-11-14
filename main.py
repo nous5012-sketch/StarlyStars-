@@ -257,7 +257,24 @@ async def calculate_custom_stars(message: types.Message, state: FSMContext):
     return
 
   count = int(message.text)
-  price = max(10, int(count * 0.75))
+  if count <= 50:
+    price = count * 0.80
+  elif count <= 100:
+    price = count * 0.80
+  elif count <= 250:
+    price = count * 0.784
+  elif count <= 500:
+    price = count * 0.77
+  elif count <= 1000:
+    price = count * 0.765
+  elif count <= 2500:
+    price = count * 0.756
+  elif count <= 5000:
+    price = count * 0.75
+  else:
+    price = count * 0.749
+
+  price = int(round(price))
 
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
@@ -350,18 +367,18 @@ async def calc_menu(message: types.Message, state: FSMContext):
 async def process_calc(message: types.Message):
   text_cleaned = message.text.lower().replace("грн", "").strip()
   if not text_cleaned.isdigit():
-    await message.answer("Будь ласка, введіть число (наприклад, 100 або 500 грн).")
+    await message.answer("Будь ласка, введіть число (наприклад, 100 або 385 грн).")
     return
 
   val = int(text_cleaned)
-  stars_approx = int(val / 0.75)
-  UAH_approx = int(val * 0.75)
+  stars_approx = int(val / 0.80)
+  UAH_approx = int(val * 0.80)
 
   await message.answer(
       f"📊 **Результат розрахунку для `{val}`:**\n\n"
       f"⭐ Якщо це **зірки**: ~`{UAH_approx}` грн\n"
       f"💵 Якщо це **гривні**: ~`{stars_approx}` зірок\n\n"
-      "*(Точні ціни фіксовані в каталозі зірок)*",
+      "*(Точні ціни пакетів дивіться у каталозі зірок)*",
       parse_mode="Markdown",
       reply_markup=back_button(),
   )
@@ -571,4 +588,4 @@ async def main():
 if __name__ == "__main__":
   logging.basicConfig(level=logging.INFO, stream=sys.stdout)
   asyncio.run(main())
-                
+    
