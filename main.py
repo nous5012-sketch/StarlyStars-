@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 from aiogram import Bot, Dispatcher, F, Router, types
+from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -9,14 +10,16 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 TOKEN = "9113395557:AAHhrbAONJcW4Gl5gXfsPIcgSxmJLQeWMrQ"
-ADMIN_ID = 7648928411  # Ваш Telegram ID
-CHANNEL_USERNAME = "@StarlyStars_UKR"  # Ваш канал для перевірки підписки
-BOT_USERNAME = "@StarlyStars_bot"  # Юзернейм вашого бота
+ADMIN_ID = 7648928411
+CHANNEL_USERNAME = "@StarlyStars_UKR"
+BOT_USERNAME = "@StarlyStars_bot"
+
+# Налаштування логування, щоб бачити в консолі Railway, що відбувається
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 router = Router()
 
 
-# --- Стани (FSM) ---
 class OrderState(StatesGroup):
   waiting_for_screenshot = State()
 
@@ -33,11 +36,10 @@ class BroadcastState(StatesGroup):
   waiting_for_broadcast_text = State()
 
 
-# --- База даних у пам'яті ---
 user_profiles = {}
-all_users = set()  # Список усіх користувачів для розсилки
-order_counter = 5  # Загальний лічильник успішних замовлень (наступне буде #6)
-pending_orders = {}  # Зберігає деталі замовлень покупців за ID
+all_users = set()
+order_counter = 5
+pending_orders = {}
 
 
 def get_profile(user_id: int, user_name: str = "Користувач"):
@@ -49,13 +51,12 @@ def get_profile(user_id: int, user_name: str = "Користувач"):
         "name": user_name,
         "referred_count": 0,
         "referred_users": [],
-        "ref_balance": 0.0,  # Реферальний баланс у гривнях
-        "purchase_history": [],  # Історія успішних замовлень
+        "ref_balance": 0.0,
+        "purchase_history": [],
     }
   return user_profiles[user_id]
 
 
-# --- Жорстка перевірка підписки на канал ---
 async def check_subscription(user_id: int, bot: Bot) -> bool:
   try:
     member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
@@ -82,7 +83,6 @@ def sub_check_keyboard():
   )
 
 
-# --- Головне меню ---
 def main_menu():
   return types.ReplyKeyboardMarkup(
       keyboard=[
@@ -100,7 +100,6 @@ def main_menu():
   )
 
 
-# --- Клавіатура профілю ---
 def profile_keyboard():
   return InlineKeyboardMarkup(
       inline_keyboard=[
@@ -113,14 +112,12 @@ def profile_keyboard():
   )
 
 
-# --- Кнопка "Назад" ---
 def back_button():
   return InlineKeyboardMarkup(
       inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="back_home")]]
   )
 
 
-# --- Команда /start з підтримкою рефералів ---
 @router.message(Command("start"))
 async def cmd_start(
     message: types.Message, state: FSMContext, command: CommandObject, bot: Bot
@@ -141,8 +138,7 @@ async def cmd_start(
         if user_id not in ref_profile["referred_users"]:
           ref_profile["referred_users"].append(user_id)
           ref_profile["referred_count"] += 1
-          ref_profile["ref_balance"] += 5.0  # Нараховуємо 5 грн бонуса за друга
-
+          ref_profile["ref_balance"] += 5.0
           try:
             await bot.send_message(
                 referrer_id,
@@ -170,7 +166,6 @@ async def cmd_start(
   )
 
 
-# --- Адмін-команда /stats ---
 @router.message(Command("stats"))
 async def admin_stats(message: types.Message):
   if message.from_user.id != ADMIN_ID:
@@ -201,7 +196,6 @@ async def admin_stats(message: types.Message):
   await message.answer(stats_text, reply_markup=kb, parse_mode="Markdown")
 
 
-# --- Адмін-розсилка ---
 @router.callback_query(F.data == "start_broadcast")
 async def start_broadcast_cb(callback: types.CallbackQuery, state: FSMContext):
   if callback.from_user.id != ADMIN_ID:
@@ -218,13 +212,11 @@ async def start_broadcast_cb(callback: types.CallbackQuery, state: FSMContext):
 async def send_broadcast(message: types.Message, state: FSMContext):
   if message.from_user.id != ADMIN_ID:
     return
-
   await state.clear()
   await message.answer("⏳ Розсилка розпочалася...")
 
   success_count = 0
   fail_count = 0
-
   for uid in all_users:
     try:
       await message.send_copy(chat_id=uid)
@@ -241,7 +233,6 @@ async def send_broadcast(message: types.Message, state: FSMContext):
   )
 
 
-# --- Обробка кнопки "Перевірити підписку" ---
 @router.callback_query(F.data == "check_sub_action")
 async def verify_sub_cb(callback: types.CallbackQuery, bot: Bot):
   user_id = callback.from_user.id
@@ -259,7 +250,6 @@ async def verify_sub_cb(callback: types.CallbackQuery, bot: Bot):
     await callback.answer("❌ Ви ще не підписалися на канал!", show_alert=True)
 
 
-# --- Кнопка Відгуки ---
 @router.message(F.text == "💬 Відгуки")
 async def btn_reviews(message: types.Message, bot: Bot):
   if not await check_subscription(message.from_user.id, bot):
@@ -280,7 +270,6 @@ async def btn_reviews(message: types.Message, bot: Bot):
   await message.answer("Наші відгуки:", reply_markup=kb)
 
 
-# --- Каталог Telegram Stars ---
 @router.message(F.text == "⭐ Telegram Stars")
 async def catalog_stars(message: types.Message, bot: Bot):
   if not await check_subscription(message.from_user.id, bot):
@@ -358,9 +347,7 @@ async def process_stars_buy(callback: types.CallbackQuery, state: FSMContext):
   )
   await state.set_state(OrderState.waiting_for_screenshot)
   await state.update_data(
-      item=f"{count} Stars ⭐",
-      stars_add=int(count),
-      prem_add=0,
+      item=f"{count} Stars ⭐", stars_add=int(count), prem_add=0
   )
   await callback.message.edit_text(text, reply_markup=back_button())
   await callback.answer()
@@ -388,7 +375,6 @@ async def custom_stars_prompt(callback: types.CallbackQuery):
   await callback.answer()
 
 
-# --- Каталог Telegram Premium ---
 @router.message(F.text == "💎 Telegram Premium")
 async def catalog_prem(message: types.Message, bot: Bot):
   if not await check_subscription(message.from_user.id, bot):
@@ -428,7 +414,6 @@ async def process_prem_buy(callback: types.CallbackQuery, state: FSMContext):
   await callback.answer()
 
 
-# --- Профіль з історією та реферальним балансом ---
 @router.message(F.text == "👤 Профіль")
 async def profile_handler(message: types.Message, bot: Bot):
   if not await check_subscription(message.from_user.id, bot):
@@ -438,7 +423,6 @@ async def profile_handler(message: types.Message, bot: Bot):
     return
   user_id = message.from_user.id
   p = get_profile(user_id, message.from_user.full_name)
-
   ref_link = f"https://t.me/StarlyStars_bot?start=ref{user_id}"
 
   text = (
@@ -457,13 +441,11 @@ async def profile_handler(message: types.Message, bot: Bot):
   )
 
 
-# --- Перегляд історії покупок ---
 @router.callback_query(F.data == "view_history")
 async def view_history_cb(callback: types.CallbackQuery):
   user_id = callback.from_user.id
   p = get_profile(user_id)
   history = p["purchase_history"]
-
   if not history:
     await callback.answer(
         "У вас поки немає завершених замовлень 📦", show_alert=True
@@ -478,7 +460,6 @@ async def view_history_cb(callback: types.CallbackQuery):
   await callback.answer()
 
 
-# --- Підтримка ---
 @router.message(F.text == "🛠 Підтримка")
 async def support_handler(message: types.Message, state: FSMContext, bot: Bot):
   if not await check_subscription(message.from_user.id, bot):
@@ -521,7 +502,6 @@ async def send_support_to_admin(
   )
 
 
-# --- Обробка скріншота оплати ---
 @router.message(OrderState.waiting_for_screenshot, F.photo)
 async def receive_screenshot(
     message: types.Message, state: FSMContext, bot: Bot
@@ -548,7 +528,6 @@ async def receive_screenshot(
       f"🤖 Продавець: {BOT_USERNAME}"
   )
   await bot.send_message(ADMIN_ID, info_text)
-
   await bot.forward_message(
       chat_id=ADMIN_ID, from_chat_id=message.chat.id, message_id=message.message_id
   )
@@ -565,9 +544,7 @@ async def receive_screenshot(
           ]
       ]
   )
-
   await bot.send_message(ADMIN_ID, text="👇 Керування оплатою вище:", reply_markup=admin_kb)
-
   await state.clear()
   await message.answer(
       "Почекайте поки триває перевірка оплати, це займає близько 5-60 хв",
@@ -575,7 +552,6 @@ async def receive_screenshot(
   )
 
 
-# --- Адмін управління ---
 @router.callback_query(F.data.startswith("approve_"))
 async def admin_approve(callback: types.CallbackQuery, bot: Bot):
   global order_counter
@@ -638,7 +614,6 @@ async def admin_approve(callback: types.CallbackQuery, bot: Bot):
 @router.callback_query(F.data.startswith("decline_"))
 async def admin_decline(callback: types.CallbackQuery, bot: Bot):
   user_id = int(callback.data.split("_")[1])
-
   pending_orders.pop(user_id, None)
 
   await bot.send_message(
@@ -653,11 +628,36 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
   await callback.answer("Ви відхилили оплату.")
 
 
-# --- Написання відгуку ---
 @router.callback_query(F.data.startswith("leave_yes_"))
 async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext):
   await state.set_state(ReviewState.waiting_for_review_text)
   await callback.message.edit_text(
       "✍️ Напишіть ваш відгук нижче у повідомленні:"
   )
-  await callba
+  await callback.answer()
+
+
+@router.callback_query(F.data.startswith("leave_no_"))
+async def review_no_cb(callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+  user_id = callback.from_user.id
+  user_name = callback.from_user.full_name
+
+  order_info = pending_orders.get(
+      user_id, {"order_num": 1, "item": "Зірки / Преміум"}
+  )
+  order_num = order_info.get("order_num", 1)
+  purchased_item = order_info.get("item", "Зірки / Преміум")
+
+  formatted_review = (
+      f"👤 Користувач: {user_name}\n"
+      f"🧾 Замовлення #{order_num}\n"
+      f"📦 Кількість: {purchased_item}\n"
+      f"💬 Відгук: Вирішив промовчати 🤫\n"
+      f"🤖 Продавець: {BOT_USERNAME}"
+  )
+
+  await bot.send_message(ADMIN_ID, formatted_review)
+  pending_orders.pop(user_id, None)
+
+  await state.clear()
+  
