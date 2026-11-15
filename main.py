@@ -122,12 +122,14 @@ def back_button():
 
 # --- Команда /start з підтримкою рефералів ---
 @router.message(Command("start"))
-async def cmd_start(message: types.Message, state: FSMContext, command: CommandObject, bot: Bot):
+async def cmd_start(
+    message: types.Message, state: FSMContext, command: CommandObject, bot: Bot
+):
   await state.clear()
   user_id = message.from_user.id
   user_name = message.from_user.full_name
   all_users.add(user_id)
-  
+
   profile = get_profile(user_id, user_name)
 
   args = command.args
@@ -140,12 +142,15 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
           ref_profile["referred_users"].append(user_id)
           ref_profile["referred_count"] += 1
           ref_profile["ref_balance"] += 5.0  # Нараховуємо 5 грн бонуса за друга
-          
+
           try:
             await bot.send_message(
                 referrer_id,
-                f"🎉 За вашим реферальним посиланням зареєструвався новий користувач! Вам нараховано бонус: **5.00 грн** 🎁",
-                parse_mode="Markdown"
+                (
+                    "🎉 За вашим реферальним посиланням зареєструвався новий"
+                    " користувач! Вам нараховано бонус: **5.00 грн** 🎁"
+                ),
+                parse_mode="Markdown",
             )
           except Exception:
             pass
@@ -183,10 +188,14 @@ async def admin_stats(message: types.Message):
       f"⭐ Продано зірок: `{total_stars}`\n"
       f"💎 Продано Telegram Premium: `{total_prem}`"
   )
-  
+
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
-          [InlineKeyboardButton(text="📢 Зробити розсилку", callback_data="start_broadcast")]
+          [
+              InlineKeyboardButton(
+                  text="📢 Зробити розсилку", callback_data="start_broadcast"
+              )
+          ]
       ]
   )
   await message.answer(stats_text, reply_markup=kb, parse_mode="Markdown")
@@ -199,16 +208,17 @@ async def start_broadcast_cb(callback: types.CallbackQuery, state: FSMContext):
     return
   await state.set_state(BroadcastState.waiting_for_broadcast_text)
   await callback.message.answer(
-      "📢 Надішліть текст або картинку з текстом для розсилки всім користувачам бота:"
+      "📢 Надішліть текст або картинку з текстом для розсилки всім користувачам"
+      " бота:"
   )
   await callback.answer()
 
 
 @router.message(BroadcastState.waiting_for_broadcast_text)
-async def send_broadcast(message: types.Message, state: FSMContext, bot: Bot):
+async def send_broadcast(message: types.Message, state: FSMContext):
   if message.from_user.id != ADMIN_ID:
     return
-  
+
   await state.clear()
   await message.answer("⏳ Розсилка розпочалася...")
 
@@ -227,7 +237,7 @@ async def send_broadcast(message: types.Message, state: FSMContext, bot: Bot):
       f"✅ **Розсилку завершено!**\n\n"
       f"📤 Успішно доставлено: `{success_count}`\n"
       f"❌ Не вдалося доставити: `{fail_count}`",
-      parse_mode="Markdown"
+      parse_mode="Markdown",
   )
 
 
@@ -246,9 +256,7 @@ async def verify_sub_cb(callback: types.CallbackQuery, bot: Bot):
     )
     await callback.answer()
   else:
-    await callback.answer(
-        "❌ Ви ще не підписалися на канал!", show_alert=True
-    )
+    await callback.answer("❌ Ви ще не підписалися на канал!", show_alert=True)
 
 
 # --- Кнопка Відгуки ---
@@ -372,7 +380,8 @@ async def custom_stars_prompt(callback: types.CallbackQuery):
   )
   await callback.message.edit_text(
       "🔄 **Своя кількість зірок**\n\n"
-      "Щоб придбати іншу кількість зірок, будь ласка, напишіть нашому адміністратору напряму:",
+      "Щоб придбати іншу кількість зірок, будь ласка, напишіть нашому"
+      " адміністратору напряму:",
       reply_markup=kb,
       parse_mode="Markdown",
   )
@@ -429,7 +438,7 @@ async def profile_handler(message: types.Message, bot: Bot):
     return
   user_id = message.from_user.id
   p = get_profile(user_id, message.from_user.full_name)
-  
+
   ref_link = f"https://t.me/StarlyStars_bot?start=ref{user_id}"
 
   text = (
@@ -443,7 +452,9 @@ async def profile_handler(message: types.Message, bot: Bot):
       f"💰 Реферальний баланс: **{p['ref_balance']:.2f} грн**\n\n"
       f"🔗 Ваше реферальне посилання:\n`{ref_link}`"
   )
-  await message.answer(text, reply_markup=profile_keyboard(), parse_mode="Markdown")
+  await message.answer(
+      text, reply_markup=profile_keyboard(), parse_mode="Markdown"
+  )
 
 
 # --- Перегляд історії покупок ---
@@ -454,7 +465,9 @@ async def view_history_cb(callback: types.CallbackQuery):
   history = p["purchase_history"]
 
   if not history:
-    await callback.answer("У вас поки немає завершених замовлень 📦", show_alert=True)
+    await callback.answer(
+        "У вас поки немає завершених замовлень 📦", show_alert=True
+    )
     return
 
   history_text = "📦 **Ваша історія покупок:**\n\n"
@@ -475,13 +488,16 @@ async def support_handler(message: types.Message, state: FSMContext, bot: Bot):
     return
   await state.set_state(SupportState.waiting_for_message)
   await message.answer(
-      "Напишіть будь ласка вашу проблему, адміністрація зв'яжеться з вами якомога скоріше.",
+      "Напишіть будь ласка вашу проблему, адміністрація зв'яжеться з вами"
+      " якомога скоріше.",
       reply_markup=back_button(),
   )
 
 
 @router.message(SupportState.waiting_for_message)
-async def send_support_to_admin(message: types.Message, state: FSMContext, bot: Bot):
+async def send_support_to_admin(
+    message: types.Message, state: FSMContext, bot: Bot
+):
   user_name = message.from_user.full_name
   user_id = message.from_user.id
   text = (
@@ -500,12 +516,16 @@ async def send_support_to_admin(message: types.Message, state: FSMContext, bot: 
   )
   await bot.send_message(ADMIN_ID, text, reply_markup=kb, parse_mode="Markdown")
   await state.clear()
-  await message.answer("Ваше повідомлення надіслано адміністрації!", reply_markup=main_menu())
+  await message.answer(
+      "Ваше повідомлення надіслано адміністрації!", reply_markup=main_menu()
+  )
 
 
 # --- Обробка скріншота оплати ---
 @router.message(OrderState.waiting_for_screenshot, F.photo)
-async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot):
+async def receive_screenshot(
+    message: types.Message, state: FSMContext, bot: Bot
+):
   data = await state.get_data()
   item = data.get("item", "Товар")
   stars_add = data.get("stars_add", 0)
@@ -530,9 +550,7 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
   await bot.send_message(ADMIN_ID, info_text)
 
   await bot.forward_message(
-      chat_id=ADMIN_ID,
-      from_chat_id=message.chat.id,
-      message_id=message.message_id
+      chat_id=ADMIN_ID, from_chat_id=message.chat.id, message_id=message.message_id
   )
 
   admin_kb = InlineKeyboardMarkup(
@@ -547,12 +565,8 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
           ]
       ]
   )
-  
-  await bot.send_message(
-      ADMIN_ID,
-      text="👇 Керування оплатою вище:",
-      reply_markup=admin_kb
-  )
+
+  await bot.send_message(ADMIN_ID, text="👇 Керування оплатою вище:", reply_markup=admin_kb)
 
   await state.clear()
   await message.answer(
@@ -611,7 +625,10 @@ async def admin_approve(callback: types.CallbackQuery, bot: Bot):
   )
 
   try:
-    await callback.message.edit_text(text=f"✨ **[СТАТУС: СХВАЛЕНО ✅ | Замовлення #{current_order_id}]**", parse_mode="Markdown")
+    await callback.message.edit_text(
+        text=f"✨ **[СТАТУС: СХВАЛЕНО ✅ | Замовлення #{current_order_id}]**",
+        parse_mode="Markdown",
+    )
   except Exception:
     pass
 
@@ -621,14 +638,16 @@ async def admin_approve(callback: types.CallbackQuery, bot: Bot):
 @router.callback_query(F.data.startswith("decline_"))
 async def admin_decline(callback: types.CallbackQuery, bot: Bot):
   user_id = int(callback.data.split("_")[1])
-  
+
   pending_orders.pop(user_id, None)
 
   await bot.send_message(
       user_id, "❌ Вашу оплату було відхилено. Зверніться в підтримку."
   )
   try:
-    await callback.message.edit_text(text="❌ **[СТАТУС: ВІДХИЛЕНО ❌]**", parse_mode="Markdown")
+    await callback.message.edit_text(
+        text="❌ **[СТАТУС: ВІДХИЛЕНО ❌]**", parse_mode="Markdown"
+    )
   except Exception:
     pass
   await callback.answer("Ви відхилили оплату.")
@@ -641,9 +660,4 @@ async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext):
   await callback.message.edit_text(
       "✍️ Напишіть ваш відгук нижче у повідомленні:"
   )
-  await callback.answer()
-
-
-@router.callback_query(F.data.startswith("leave_no_"))
-async def review_no_cb(callback: types.CallbackQuery, state: FSMContext, bot: Bot):
-  user_
+  await callba
