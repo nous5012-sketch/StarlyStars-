@@ -2,7 +2,7 @@ import asyncio
 import logging
 import sys
 from aiogram import Bot, Dispatcher, F, Router, types
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -42,6 +42,8 @@ def get_profile(user_id: int, user_name: str = "Користувач"):
         "prem_bought": 0,
         "reg_date": "Сьогодні",
         "name": user_name,
+        "referred_count": 0,  # Кількість запрошених людей
+        "referred_users": [],  # Список тих, кого він запросив
     }
   return user_profiles[user_id]
 
@@ -98,12 +100,28 @@ def back_button():
   )
 
 
-# --- Команда /start ---
+# --- Команда /start з підтримкою рефералів ---
 @router.message(Command("start"))
-async def cmd_start(message: types.Message, state: FSMContext, bot: Bot):
+async def cmd_start(message: types.Message, state: FSMContext, command: CommandObject, bot: Bot):
   await state.clear()
   user_id = message.from_user.id
-  get_profile(user_id, message.from_user.full_name)
+  user_name = message.from_user.full_name
+  profile = get_profile(user_id, user_name)
+
+  # Перевірка реферального аргумента (наприклад, /start ref123456789)
+  args = command.args
+  if args and args.startswith("ref"):
+    try:
+      referrer_id = int(args.replace("ref", ""))
+      # Перевіряємо, щоб користувач не запросив сам себе і що реферер існує
+      if referrer_id != user_id and profile["reg_date"] == "Сьогодні":
+        # Перевіримо чи цей користувач ще не був зарахований
+        ref_profile = get_profile(referrer_id)
+        if user_id not in ref_profile["referred_users"]:
+          ref_profile["referred_users"].append(user_id)
+          ref_profile["referred_count"] += 1
+    except Exception as e:
+      logging.error(f"Помилка обробки реферала: {e}")
 
   if not await check_subscription(user_id, bot):
     await message.answer(
@@ -306,7 +324,7 @@ async def process_prem_buy(callback: types.CallbackQuery, state: FSMContext):
   await callback.answer()
 
 
-# --- Профіль ---
+# --- Профіль з реферальною системою ---
 @router.message(F.text == "👤 Профіль")
 async def profile_handler(message: types.Message, bot: Bot):
   if not await check_subscription(message.from_user.id, bot):
@@ -314,13 +332,20 @@ async def profile_handler(message: types.Message, bot: Bot):
         "⚠️ Спочатку підпишіться на канал!", reply_markup=sub_check_keyboard()
     )
     return
-  p = get_profile(message.from_user.id, message.from_user.full_name)
+  user_id = message.from_user.id
+  p = get_profile(user_id, message.from_user.full_name)
+  
+  ref_link = f"https://t.me/StarlyStars_bot?start=ref{user_id}"
+
   text = (
       f"👤 **Ваш профіль:**\n\n"
-      f"🆔 Номер акаунту (ID): `{message.from_user.id}`\n"
+      f"🆔 Номер акаунту (ID): `{user_id}`\n"
       f"📅 Дата створення: {p['reg_date']}\n"
       f"⭐ Всього придбано зірок: {p['stars_bought']}\n"
-      f"💎 Всього придбано Premium: {p['prem_bought']}"
+      f"💎 Всього придбано Premium: {p['prem_bought']}\n\n"
+      f"👥 **Реферальна система:**\n"
+      f"Запрошено користувачів: **{p['referred_count']}**\n\n"
+      f"🔗 Ваше реферальне посилання:\n`{ref_link}`"
   )
   await message.answer(text, parse_mode="Markdown")
 
@@ -363,7 +388,7 @@ async def send_support_to_admin(message: types.Message, state: FSMContext, bot: 
   await message.answer("Ваше повідомлення надіслано адміністрації!", reply_markup=main_menu())
 
 
-# --- Обробка скріншота оплати ---
+# --- Обробка скріншота оплати та пересилання повідомлення адміну ---
 @router.message(OrderState.waiting_for_screenshot, F.photo)
 async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot):
   global order_counter
@@ -373,13 +398,12 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
   prem_add = data.get("prem_add", 0)
 
   user_name = message.from_user.full_name
-  photo_id = message.photo[-1].file_id
   user_id = message.from_user.id
 
   order_counter += 1
   current_order_id = order_counter
 
-  # Зберігаємо дані в загальний словник замовлень
+  # Зберігаємо деталі замовлення в словник
   pending_orders[user_id] = {
       "user_name": user_name,
       "order_num": current_order_id,
@@ -388,13 +412,23 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
       "prem_add": prem_add,
   }
 
-  admin_caption = (
+  # 1. Надсилаємо інформаційний текст про замовлення
+  info_text = (
       f"Користувач: {user_name}\n"
       f"Замовлення #{current_order_id}\n"
       f"Кількість: {item}\n"
       f"Продавець: {BOT_USERNAME}"
   )
+  await bot.send_message(ADMIN_ID, info_text)
 
+  # 2. Пересилаємо скріншот від самого користувача (тепер ви зможете зайти в його профіль!)
+  forwarded_msg = await bot.forward_message(
+      chat_id=ADMIN_ID,
+      from_chat_id=message.chat.id,
+      message_id=message.message_id
+  )
+
+  # 3. Додаємо кнопки підтвердження
   admin_kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -407,13 +441,13 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
           ]
       ]
   )
-
-  await bot.send_photo(
+  
+  await bot.send_message(
       ADMIN_ID,
-      photo=photo_id,
-      caption=admin_caption,
-      reply_markup=admin_kb,
+      text="Керування оплатою вище:",
+      reply_markup=admin_kb
   )
+
   await state.clear()
   await message.answer(
       "Почекайте поки триває перевірка оплати, це займає близько 5-60 хв",
@@ -465,10 +499,7 @@ async def admin_approve(callback: types.CallbackQuery, bot: Bot):
   )
 
   try:
-    await callback.message.edit_caption(
-        caption=callback.message.caption + "\n\n**[СТАТУС: СХВАЛЕНО ✅]**",
-        parse_mode="Markdown",
-    )
+    await callback.message.edit_text(text="**[СТАТУС: СХВАЛЕНО ✅]**", parse_mode="Markdown")
   except Exception:
     pass
 
@@ -482,16 +513,13 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
       user_id, "❌ Вашу оплату було відхилено. Зверніться в підтримку."
   )
   try:
-    await callback.message.edit_caption(
-        caption=callback.message.caption + "\n\n**[СТАТУС: ВІДХИЛЕНО ❌]**",
-        parse_mode="Markdown",
-    )
+    await callback.message.edit_text(text="**[СТАТУС: ВІДХИЛЕНО ❌]**", parse_mode="Markdown")
   except Exception:
     pass
   await callback.answer("Ви відхилили оплату.")
 
 
-# --- Написання відгуку (Надійний обробник через state за ID) ---
+# --- Написання відгуку ---
 @router.callback_query(F.data.startswith("leave_yes_"))
 async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext):
   await state.set_state(ReviewState.waiting_for_review_text)
@@ -516,14 +544,12 @@ async def receive_review_text(message: types.Message, state: FSMContext, bot: Bo
   user_name = message.from_user.full_name
   review_text = message.text
 
-  # Дістаємо дані про замовлення цього користувача
   order_info = pending_orders.get(
       user_id, {"order_num": "1", "item": "Зірки / Преміум"}
   )
   order_num = order_info["order_num"]
   purchased_item = order_info["item"]
 
-  # Формуємо готовий звіт за вашим точним шаблоном
   formatted_review = (
       f"Користувач: {user_name}\n"
       f"Замовлення #{order_num}\n"
