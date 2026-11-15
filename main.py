@@ -368,8 +368,8 @@ async def send_support_to_admin(message: types.Message, state: FSMContext, bot: 
   user_id = message.from_user.id
   text = (
       f"📩 **Нове звернення у підтримку!**\n\n"
-      f"Від: {user_name} (ID: `{user_id}`)\n"
-      f"Повідомлення: {message.text}"
+      f"👤 Від: {user_name} (ID: `{user_id}`)\n"
+      f"💬 Повідомлення: {message.text}"
   )
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
@@ -396,7 +396,6 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
   user_name = message.from_user.full_name
   user_id = message.from_user.id
 
-  # Зберігаємо дані (номер замовлення присвоїмо тільки при натисканні "Успішно")
   pending_orders[user_id] = {
       "user_name": user_name,
       "item": item,
@@ -405,10 +404,10 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
   }
 
   info_text = (
-      f"Користувач: {user_name}\n"
-      f"Очікує підтвердження оплати...\n"
-      f"Кількість: {item}\n"
-      f"Продавець: {BOT_USERNAME}"
+      f"👤 Користувач: {user_name}\n"
+      f"⏳ Статус: Очікує підтвердження оплати...\n"
+      f"📦 Кількість: {item}\n"
+      f"🤖 Продавець: {BOT_USERNAME}"
   )
   await bot.send_message(ADMIN_ID, info_text)
 
@@ -434,7 +433,7 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
   
   await bot.send_message(
       ADMIN_ID,
-      text="Керування оплатою вище:",
+      text="👇 Керування оплатою вище:",
       reply_markup=admin_kb
   )
 
@@ -461,7 +460,7 @@ async def admin_approve(callback: types.CallbackQuery, bot: Bot):
       },
   )
 
-  # Тільки тут інкрементуємо лічильник, бо замовлення успішне!
+  # Інкрементуємо лічильник успішного замовлення
   order_counter += 1
   current_order_id = order_counter
   order_info["order_num"] = current_order_id
@@ -494,7 +493,7 @@ async def admin_approve(callback: types.CallbackQuery, bot: Bot):
   )
 
   try:
-    await callback.message.edit_text(text=f"**[СТАТУС: СХВАЛЕНО ✅ | Замовлення #{current_order_id}]**", parse_mode="Markdown")
+    await callback.message.edit_text(text=f"✨ **[СТАТУС: СХВАЛЕНО ✅ | Замовлення #{current_order_id}]**", parse_mode="Markdown")
   except Exception:
     pass
 
@@ -505,14 +504,13 @@ async def admin_approve(callback: types.CallbackQuery, bot: Bot):
 async def admin_decline(callback: types.CallbackQuery, bot: Bot):
   user_id = int(callback.data.split("_")[1])
   
-  # Видаляємо з очікування, лічильник НЕ чіпаємо (номер не витрачається)
   pending_orders.pop(user_id, None)
 
   await bot.send_message(
       user_id, "❌ Вашу оплату було відхилено. Зверніться в підтримку."
   )
   try:
-    await callback.message.edit_text(text="**[СТАТУС: ВІДХИЛЕНО ❌]**", parse_mode="Markdown")
+    await callback.message.edit_text(text="❌ **[СТАТУС: ВІДХИЛЕНО ❌]**", parse_mode="Markdown")
   except Exception:
     pass
   await callback.answer("Ви відхилили оплату.")
@@ -523,13 +521,34 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
 async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext):
   await state.set_state(ReviewState.waiting_for_review_text)
   await callback.message.edit_text(
-      "Напишіть ваш відгук нижче у повідомленні:"
+      "✍️ Напишіть ваш відгук нижче у повідомленні:"
   )
   await callback.answer()
 
 
 @router.callback_query(F.data.startswith("leave_no_"))
-async def review_no_cb(callback: types.CallbackQuery, state: FSMContext):
+async def review_no_cb(callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+  user_id = callback.from_user.id
+  user_name = callback.from_user.full_name
+  
+  order_info = pending_orders.get(
+      user_id, {"order_num": 1, "item": "Зірки / Преміум"}
+  )
+  order_num = order_info.get("order_num", 1)
+  purchased_item = order_info.get("item", "Зірки / Преміум")
+
+  # Красиво оформлений звіт, якщо користувач обрав "Вирішив промовчати"
+  formatted_review = (
+      f"👤 Користувач: {user_name}\n"
+      f"🧾 Замовлення #{order_num}\n"
+      f"📦 Кількість: {purchased_item}\n"
+      f"💬 Відгук: Вирішив промовчати 🤫\n"
+      f"🤖 Продавець: {BOT_USERNAME}"
+  )
+
+  await bot.send_message(ADMIN_ID, formatted_review)
+  pending_orders.pop(user_id, None)
+  
   await state.clear()
   await callback.message.edit_text(
       "Дякуємо, що обрали StarlyStars ❤️\nГарного дня 💋"
@@ -549,15 +568,18 @@ async def receive_review_text(message: types.Message, state: FSMContext, bot: Bo
   order_num = order_info.get("order_num", 1)
   purchased_item = order_info.get("item", "Зірки / Преміум")
 
+  # Красиво оформлений звіт із залишеним відгуком
   formatted_review = (
-      f"Користувач: {user_name}\n"
-      f"Замовлення #{order_num}\n"
-      f"Кількість: {purchased_item}\n"
-      f"Відгук: {review_text}\n"
-      f"Продавець: {BOT_USERNAME}"
+      f"👤 Користувач: {user_name}\n"
+      f"🧾 Замовлення #{order_num}\n"
+      f"📦 Кількість: {purchased_item}\n"
+      f"💬 Відгук: {review_text}\n"
+      f"🤖 Продавець: {BOT_USERNAME}"
   )
 
   await bot.send_message(ADMIN_ID, formatted_review)
+  pending_orders.pop(user_id, None)
+  
   await state.clear()
   await message.answer(
       "Дякуємо за відгук ❤️\nГарного дня 💋", reply_markup=main_menu()
