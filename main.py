@@ -29,8 +29,13 @@ class ReviewState(StatesGroup):
   waiting_for_review_text = State()
 
 
+class BroadcastState(StatesGroup):
+  waiting_for_broadcast_text = State()
+
+
 # --- База даних у пам'яті ---
 user_profiles = {}
+all_users = set()  # Список усіх користувачів для розсилки
 order_counter = 5  # Загальний лічильник успішних замовлень (наступне буде #6)
 pending_orders = {}  # Зберігає деталі замовлень покупців за ID
 
@@ -44,6 +49,8 @@ def get_profile(user_id: int, user_name: str = "Користувач"):
         "name": user_name,
         "referred_count": 0,
         "referred_users": [],
+        "ref_balance": 0.0,  # Реферальний баланс у гривнях
+        "purchase_history": [],  # Історія успішних замовлень
     }
   return user_profiles[user_id]
 
@@ -54,7 +61,7 @@ async def check_subscription(user_id: int, bot: Bot) -> bool:
     member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
     return member.status in ["creator", "administrator", "member"]
   except Exception as e:
-    logging.error(f"Помилка перевірки підписки (перевірте чи бот адмін у каналі): {e}")
+    logging.error(f"Помилка перевірки підписки: {e}")
     return False
 
 
@@ -93,6 +100,19 @@ def main_menu():
   )
 
 
+# --- Клавіатура профілю ---
+def profile_keyboard():
+  return InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="📦 Історія покупок", callback_data="view_history"
+              )
+          ]
+      ]
+  )
+
+
 # --- Кнопка "Назад" ---
 def back_button():
   return InlineKeyboardMarkup(
@@ -106,6 +126,8 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
   await state.clear()
   user_id = message.from_user.id
   user_name = message.from_user.full_name
+  all_users.add(user_id)
+  
   profile = get_profile(user_id, user_name)
 
   args = command.args
@@ -117,6 +139,17 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
         if user_id not in ref_profile["referred_users"]:
           ref_profile["referred_users"].append(user_id)
           ref_profile["referred_count"] += 1
+          ref_profile["ref_balance"] += 5.0  # Нараховуємо 5 грн бонуса за друга
+          
+          # Повідомляємо реферера про нового друга
+          try:
+            await bot.send_message(
+                referrer_id,
+                f"🎉 За вашим реферальним посиланням зареєструвався новий користувач! Вам нараховано бонус: **5.00 грн** 🎁",
+                parse_mode="Markdown"
+            )
+          except Exception:
+            pass
     except Exception as e:
       logging.error(f"Помилка обробки реферала: {e}")
 
@@ -130,6 +163,74 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
 
   await message.answer(
       "Вітаємо в StarlyStars ⭐. Що бажаєте придбати?", reply_markup=main_menu()
+  )
+
+
+# --- Адмін-команда /stats ---
+@router.message(Command("stats"))
+async def admin_stats(message: types.Message):
+  if message.from_user.id != ADMIN_ID:
+    return
+
+  total_users = len(all_users)
+  total_orders = order_counter - 5  # Кількість успішних замовлень (починаючи з 5)
+  
+  # Рахуємо загальну кількість проданих зірок і преміумів
+  total_stars = sum(p["stars_bought"] for p in user_profiles.values())
+  total_prem = sum(p["prem_bought"] for p in user_profiles.values())
+
+  stats_text = (
+      f"📊 **Статистика бота StarlyStars:**\n\n"
+      f"👥 Всього користувачів: `{total_users}`\n"
+      f"📦 Всього успішних замовлень: `{total_orders}`\n"
+      f"⭐ Продано зірок: `{total_stars}`\n"
+      f"💎 Продано Telegram Premium: `{total_prem}`"
+  )
+  
+  kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [InlineKeyboardButton(text="📢 Зробити розсилку", callback_data="start_broadcast")]
+      ]
+  )
+  await message.answer(stats_text, reply_markup=kb, parse_mode="Markdown")
+
+
+# --- Адмін-розсилка ---
+@router.callback_query(F.data == "start_broadcast")
+async def start_broadcast_cb(callback: types.CallbackQuery, state: FSMContext):
+  if callback.from_user.id != ADMIN_ID:
+    return
+  await state.set_state(BroadcastState.waiting_for_broadcast_text)
+  await callback.message.answer(
+      "📢 Надішліть текст або картинку з текстом для розсилки всім користувачам бота:"
+  )
+  await callback.answer()
+
+
+@router.message(BroadcastState.waiting_for_broadcast_text)
+async def send_broadcast(message: types.Message, state: FSMContext, bot: Bot):
+  if message.from_user.id != ADMIN_ID:
+    return
+  
+  await state.clear()
+  await message.answer("⏳ Розсилка розпочалася...")
+
+  success_count = 0
+  fail_count = 0
+
+  for uid in all_users:
+    try:
+      await message.send_copy(chat_id=uid)
+      success_count += 1
+      await asyncio.sleep(0.05)  # Щоб не піймати ліміти Telegram API
+    except Exception:
+      fail_count += 1
+
+  await message.answer(
+      f"✅ **Розсилку завершено!**\n\n"
+      f"📤 Успішно доставлено: `{success_count}`\n"
+      f"❌ Не вдалося доставити: `{fail_count}`",
+      parse_mode="Markdown"
   )
 
 
@@ -321,7 +422,7 @@ async def process_prem_buy(callback: types.CallbackQuery, state: FSMContext):
   await callback.answer()
 
 
-# --- Профіль з реферальною системою ---
+# --- Профіль з історією та реферальним балансом ---
 @router.message(F.text == "👤 Профіль")
 async def profile_handler(message: types.Message, bot: Bot):
   if not await check_subscription(message.from_user.id, bot):
@@ -341,10 +442,30 @@ async def profile_handler(message: types.Message, bot: Bot):
       f"⭐ Всього придбано зірок: {p['stars_bought']}\n"
       f"💎 Всього придбано Premium: {p['prem_bought']}\n\n"
       f"👥 **Реферальна система:**\n"
-      f"Запрошено користувачів: **{p['referred_count']}**\n\n"
+      f"Запрошено друзів: **{p['referred_count']}**\n"
+      f"💰 Реферальний баланс: **{p['ref_balance']:.2f} грн**\n\n"
       f"🔗 Ваше реферальне посилання:\n`{ref_link}`"
   )
-  await message.answer(text, parse_mode="Markdown")
+  await message.answer(text, reply_markup=profile_keyboard(), parse_mode="Markdown")
+
+
+# --- Перегляд історії покупок ---
+@router.callback_query(F.data == "view_history")
+async def view_history_cb(callback: types.CallbackQuery):
+  user_id = callback.from_user.id
+  p = get_profile(user_id)
+  history = p["purchase_history"]
+
+  if not history:
+    await callback.answer("У вас поки немає завершених замовлень 📦", show_alert=True)
+    return
+
+  history_text = "📦 **Ваша історія покупок:**\n\n"
+  for order in history:
+    history_text += f"▪️ Замовлення #{order['num']} — {order['item']}\n"
+
+  await callback.message.answer(history_text, parse_mode="Markdown")
+  await callback.answer()
 
 
 # --- Підтримка ---
@@ -385,7 +506,7 @@ async def send_support_to_admin(message: types.Message, state: FSMContext, bot: 
   await message.answer("Ваше повідомлення надіслано адміністрації!", reply_markup=main_menu())
 
 
-# --- Обробка скріншота оплати та пересилання повідомлення адміну ---
+# --- Обробка скріншота оплати ---
 @router.message(OrderState.waiting_for_screenshot, F.photo)
 async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot):
   data = await state.get_data()
@@ -411,7 +532,6 @@ async def receive_screenshot(message: types.Message, state: FSMContext, bot: Bot
   )
   await bot.send_message(ADMIN_ID, info_text)
 
-  # Пересилаємо скріншот від самого користувача для переходу в профіль
   await bot.forward_message(
       chat_id=ADMIN_ID,
       from_chat_id=message.chat.id,
@@ -460,17 +580,18 @@ async def admin_approve(callback: types.CallbackQuery, bot: Bot):
       },
   )
 
-  # Інкрементуємо лічильник успішного замовлення
   order_counter += 1
   current_order_id = order_counter
   order_info["order_num"] = current_order_id
 
   stars_add = order_info["stars_add"]
   prem_add = order_info["prem_add"]
+  item_name = order_info["item"]
 
   p = get_profile(user_id)
   p["stars_bought"] += stars_add
   p["prem_bought"] += prem_add
+  p["purchase_history"].append({"num": current_order_id, "item": item_name})
 
   review_kb = InlineKeyboardMarkup(
       inline_keyboard=[
@@ -521,92 +642,4 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
 async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext):
   await state.set_state(ReviewState.waiting_for_review_text)
   await callback.message.edit_text(
-      "✍️ Напишіть ваш відгук нижче у повідомленні:"
-  )
-  await callback.answer()
-
-
-@router.callback_query(F.data.startswith("leave_no_"))
-async def review_no_cb(callback: types.CallbackQuery, state: FSMContext, bot: Bot):
-  user_id = callback.from_user.id
-  user_name = callback.from_user.full_name
-  
-  order_info = pending_orders.get(
-      user_id, {"order_num": 1, "item": "Зірки / Преміум"}
-  )
-  order_num = order_info.get("order_num", 1)
-  purchased_item = order_info.get("item", "Зірки / Преміум")
-
-  # Красиво оформлений звіт, якщо користувач обрав "Вирішив промовчати"
-  formatted_review = (
-      f"👤 Користувач: {user_name}\n"
-      f"🧾 Замовлення #{order_num}\n"
-      f"📦 Кількість: {purchased_item}\n"
-      f"💬 Відгук: Вирішив промовчати 🤫\n"
-      f"🤖 Продавець: {BOT_USERNAME}"
-  )
-
-  await bot.send_message(ADMIN_ID, formatted_review)
-  pending_orders.pop(user_id, None)
-  
-  await state.clear()
-  await callback.message.edit_text(
-      "Дякуємо, що обрали StarlyStars ❤️\nГарного дня 💋"
-  )
-  await callback.answer()
-
-
-@router.message(ReviewState.waiting_for_review_text)
-async def receive_review_text(message: types.Message, state: FSMContext, bot: Bot):
-  user_id = message.from_user.id
-  user_name = message.from_user.full_name
-  review_text = message.text
-
-  order_info = pending_orders.get(
-      user_id, {"order_num": 1, "item": "Зірки / Преміум"}
-  )
-  order_num = order_info.get("order_num", 1)
-  purchased_item = order_info.get("item", "Зірки / Преміум")
-
-  # Красиво оформлений звіт із залишеним відгуком
-  formatted_review = (
-      f"👤 Користувач: {user_name}\n"
-      f"🧾 Замовлення #{order_num}\n"
-      f"📦 Кількість: {purchased_item}\n"
-      f"💬 Відгук: {review_text}\n"
-      f"🤖 Продавець: {BOT_USERNAME}"
-  )
-
-  await bot.send_message(ADMIN_ID, formatted_review)
-  pending_orders.pop(user_id, None)
-  
-  await state.clear()
-  await message.answer(
-      "Дякуємо за відгук ❤️\nГарного дня 💋", reply_markup=main_menu()
-  )
-
-
-# --- Повернення в головне меню ---
-@router.callback_query(F.data == "back_home")
-async def back_home_cb(callback: types.CallbackQuery, state: FSMContext):
-  await state.clear()
-  await callback.message.answer("Головне меню:", reply_markup=main_menu())
-  try:
-    await callback.message.delete()
-  except Exception:
-    pass
-  await callback.answer()
-
-
-async def main():
-  bot = Bot(token=TOKEN)
-  dp = Dispatcher(storage=MemoryStorage())
-  dp.include_router(router)
-  await bot.delete_webhook(drop_pending_updates=True)
-  await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-  logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-  asyncio.run(main())
-  
+      "✍️ Напишіть ваш відгук ниж
