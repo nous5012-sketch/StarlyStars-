@@ -141,7 +141,6 @@ async def cmd_start(message: types.Message, state: FSMContext, command: CommandO
           ref_profile["referred_count"] += 1
           ref_profile["ref_balance"] += 5.0  # Нараховуємо 5 грн бонуса за друга
           
-          # Повідомляємо реферера про нового друга
           try:
             await bot.send_message(
                 referrer_id,
@@ -173,9 +172,7 @@ async def admin_stats(message: types.Message):
     return
 
   total_users = len(all_users)
-  total_orders = order_counter - 5  # Кількість успішних замовлень (починаючи з 5)
-  
-  # Рахуємо загальну кількість проданих зірок і преміумів
+  total_orders = order_counter - 5
   total_stars = sum(p["stars_bought"] for p in user_profiles.values())
   total_prem = sum(p["prem_bought"] for p in user_profiles.values())
 
@@ -222,7 +219,7 @@ async def send_broadcast(message: types.Message, state: FSMContext, bot: Bot):
     try:
       await message.send_copy(chat_id=uid)
       success_count += 1
-      await asyncio.sleep(0.05)  # Щоб не піймати ліміти Telegram API
+      await asyncio.sleep(0.05)
     except Exception:
       fail_count += 1
 
@@ -642,4 +639,11 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
 async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext):
   await state.set_state(ReviewState.waiting_for_review_text)
   await callback.message.edit_text(
-      "✍️ Напишіть ваш відгук ниж
+      "✍️ Напишіть ваш відгук нижче у повідомленні:"
+  )
+  await callback.answer()
+
+
+@router.callback_query(F.data.startswith("leave_no_"))
+async def review_no_cb(callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+  user_
