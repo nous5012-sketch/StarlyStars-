@@ -50,7 +50,6 @@ def get_profile(user_id: int, user_name: str = "Користувач"):
         "name": user_name,
         "referred_count": 0,
         "referred_users": [],
-        "ref_balance": 0.0,
         "purchase_history": [],
     }
   return user_profiles[user_id]
@@ -141,8 +140,7 @@ async def cmd_start(
         ref_profile = get_profile(referrer_id)
         if user_id not in ref_profile["referred_users"]:
           ref_profile["referred_users"].append(user_id)
-          ref_profile["referred_count"] += 0
-          ref_profile["ref_balance"] += 0
+          ref_profile["referred_count"] += 1
           try:
             await bot.send_message(
                 referrer_id,
@@ -186,13 +184,119 @@ async def admin_stats(message: types.Message):
   )
 
   kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="📢 Зробити розсилку", callback_data="start_broadcast"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="👥 Користувачі", callback_data="admin_users_list"
+              )
+          ],
+      ]
+  )
+  await message.answer(stats_text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "admin_users_list")
+async def admin_users_list_cb(callback: types.CallbackQuery):
+  if callback.from_user.id != ADMIN_ID:
+    return
+
+  if not all_users:
+    await callback.answer("Список користувачів порожній 📭", show_alert=True)
+    return
+
+  keyboard_buttons = []
+  for uid in list(all_users)[-20:]:  # Останні 20 користувачів для зручності
+    p = get_profile(uid)
+    name = p.get("name", f"ID: {uid}")
+    keyboard_buttons.append([
+        InlineKeyboardButton(
+            text=f"👤 {name} ({uid})", callback_data=f"admin_user_view_{uid}"
+        )
+    ])
+
+  keyboard_buttons.append(
+      [InlineKeyboardButton(text="⬅️ Назад до статистики", callback_data="back_to_stats")]
+  )
+
+  kb = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+  await callback.message.edit_text("👥 Список користувачів бота:", reply_markup=kb)
+  await callback.answer()
+
+
+@router.callback_query(F.data == "back_to_stats")
+async def back_to_stats_cb(callback: types.CallbackQuery):
+  if callback.from_user.id != ADMIN_ID:
+    return
+  total_users = len(all_users)
+  total_orders = order_counter - 5
+  total_stars = sum(p["stars_bought"] for p in user_profiles.values())
+  total_prem = sum(p["prem_bought"] for p in user_profiles.values())
+
+  stats_text = (
+      "📊 Статистика бота StarlyStars:\n\n"
+      f"👥 Всього користувачів: {total_users}\n"
+      f"📦 Всього успішних замовлень: {total_orders}\n"
+      f"⭐ Продано зірок: {total_stars}\n"
+      f"💎 Продано Telegram Premium: {total_prem}"
+  )
+  kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="📢 Зробити розсилку", callback_data="start_broadcast"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="👥 Користувачі", callback_data="admin_users_list"
+              )
+          ],
+      ]
+  )
+  await callback.message.edit_text(stats_text, reply_markup=kb)
+  await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_user_view_"))
+async def admin_user_view_cb(callback: types.CallbackQuery):
+  if callback.from_user.id != ADMIN_ID:
+    return
+
+  user_id = int(callback.data.split("_")[3])
+  p = get_profile(user_id)
+
+  history = p["purchase_history"]
+  history_str = (
+      ", ".join([f"#{h['num']} ({h['item']})" for h in history])
+      if history
+      else "Немає покупок"
+  )
+
+  text = (
+      f"👤 Профіль користувача:\n\n"
+      f"🆔 ID: {user_id}\n"
+      f"ФИО/Ім'я: {p['name']}\n"
+      f"📅 Дата створення: {p['reg_date']}\n"
+      f"⭐ Куплено зірок: {p['stars_bought']}\n"
+      f"💎 Куплено Premium: {p['prem_bought']}\n"
+      f"👥 Запрошено друзів: {p['referred_count']}\n\n"
+      f"📦 Історія покупок:\n{history_str}"
+  )
+
+  kb = InlineKeyboardMarkup(
       inline_keyboard=[[
           InlineKeyboardButton(
-              text="📢 Зробити розсилку", callback_data="start_broadcast"
+              text="⬅️ Назад до списку", callback_data="admin_users_list"
           )
       ]]
   )
-  await message.answer(stats_text, reply_markup=kb)
+  await callback.message.edit_text(text, reply_markup=kb)
+  await callback.answer()
 
 
 @router.callback_query(F.data == "start_broadcast")
@@ -329,7 +433,8 @@ async def catalog_stars(message: types.Message, bot: Bot):
       ]
   )
   await message.answer("Виберіть кількість зірок:", reply_markup=kb)
-@router.callback_query(F.data.startswith("buy_stars_"))
+  
+  @router.callback_query(F.data.startswith("buy_stars_"))
 async def process_stars_buy(callback: types.CallbackQuery, state: FSMContext):
   _, _, count, price = callback.data.split("_")
   text = (
@@ -427,7 +532,7 @@ async def profile_handler(message: types.Message, bot: Bot):
       f"⭐ Всього придбано зірок: {p['stars_bought']}\n"
       f"💎 Всього придбано Premium: {p['prem_bought']}\n\n"
       "👥 Реферальна система:\n"
-      f"Запрошено друзів: {p['referred_count']}\n"
+      f"Запрошено друзів: {p['referred_count']}\n\n"
       f"🔗 Ваше реферальне посилання:\n{ref_link}"
   )
   await message.answer(text, reply_markup=profile_keyboard())
@@ -474,9 +579,14 @@ async def send_support_to_admin(
 ):
   user_name = message.from_user.full_name
   user_id = message.from_user.id
+  user_username = (
+      f"@{message.from_user.username}"
+      if message.from_user.username
+      else f"ID: {user_id}"
+  )
   text = (
       "📩 Нове звернення у підтримку!\n\n"
-      f"👤 Від: {user_name} (ID: {user_id})\n"
+      f"👤 Від: {user_username}\n"
       f"💬 Повідомлення: {message.text}"
   )
   kb = InlineKeyboardMarkup(
@@ -502,23 +612,31 @@ async def receive_screenshot(
   stars_add = data.get("stars_add", 0)
   prem_add = data.get("prem_add", 0)
 
-  user_name = message.from_user.full_name
   user_id = message.from_user.id
+  user_username = (
+      f"@{message.from_user.username}"
+      if message.from_user.username
+      else f"ID {user_id}"
+  )
+  user_name = message.from_user.full_name
 
   pending_orders[user_id] = {
       "user_name": user_name,
+      "user_username": user_username,
       "item": item,
       "stars_add": stars_add,
       "prem_add": prem_add,
   }
 
   info_text = (
-      f"👤 Користувач: {user_name}\n"
+      f"👤 Покупець: <a href='tg://user?id={user_id}'>{user_username}</a>\n"
       "⏳ Статус: Очікує підтвердження оплати...\n"
       f"📦 Кількість: {item}\n"
       f"🤖 Продавець: {BOT_USERNAME}"
   )
-  await bot.send_message(ADMIN_ID, info_text)
+  await bot.send_message(
+      ADMIN_ID, info_text, parse_mode="HTML", disable_web_page_preview=True
+  )
 
   await bot.forward_message(
       chat_id=ADMIN_ID,
@@ -634,6 +752,7 @@ async def review_no_cb(
 ):
   user_id = callback.from_user.id
   user_name = callback.from_user.full_name
+  current_date = datetime.now().strftime("%d.%m.%Y")
 
   order_info = pending_orders.get(
       user_id, {"order_num": 1, "item": "Зірки / Преміум"}
@@ -645,6 +764,7 @@ async def review_no_cb(
       f"👤 Користувач: {user_name}\n"
       f"🧾 Замовлення #{order_num}\n"
       f"📦 Кількість: {purchased_item}\n"
+      f"📅 Дата: {current_date}\n"
       "💬 Відгук: Вирішив промовчати 🤫\n"
       f"🤖 Продавець: {BOT_USERNAME}"
   )
@@ -666,6 +786,7 @@ async def receive_review_text(
   user_id = message.from_user.id
   user_name = message.from_user.full_name
   review_text = message.text
+  current_date = datetime.now().strftime("%d.%m.%Y")
 
   order_info = pending_orders.get(
       user_id, {"order_num": 1, "item": "Зірки / Преміум"}
@@ -677,6 +798,7 @@ async def receive_review_text(
       f"👤 Користувач: {user_name}\n"
       f"🧾 Замовлення #{order_num}\n"
       f"📦 Кількість: {purchased_item}\n"
+      f"📅 Дата: {current_date}\n"
       f"💬 Відгук: {review_text}\n"
       f"🤖 Продавець: {BOT_USERNAME}"
   )
