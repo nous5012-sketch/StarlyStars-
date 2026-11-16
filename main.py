@@ -433,10 +433,11 @@ async def catalog_stars(message: types.Message, bot: Bot):
       ]
   )
   await message.answer("Виберіть кількість зірок:", reply_markup=kb)
+  
   @router.callback_query(F.data.startswith("buy_stars_"))
   async def process_stars_buy(callback: types.CallbackQuery, state: FSMContext):
-  _, _, count, price = callback.data.split("_")
-  text = (
+      _, _, count, price = callback.data.split("_")
+      text = (
       f"Кількість: {count} зірок\n"
       f"Ціна: {price} грн\n\n"
       "Реквізити карти для оплати:\n"
