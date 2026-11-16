@@ -47,7 +47,6 @@ pending_orders = {}  # Зберігає деталі замовлень поку
 
 def get_profile(user_id: int, user_name: str = "Користувач"):
   if user_id not in user_profiles:
-    # Зберігаємо реальну дату створення акаунта у боті
     reg_date_str = datetime.now().strftime("%d.%m.%Y")
     user_profiles[user_id] = {
         "stars_bought": 0,
@@ -137,7 +136,6 @@ async def cmd_start(
   user_name = message.from_user.full_name
   all_users.add(user_id)
 
-  # Перевіряємо, чи користувач вже є в базі, щоб випадково не оновити дату реєстрації
   is_new_user = user_id not in user_profiles
   profile = get_profile(user_id, user_name)
 
@@ -150,7 +148,7 @@ async def cmd_start(
         if user_id not in ref_profile["referred_users"]:
           ref_profile["referred_users"].append(user_id)
           ref_profile["referred_count"] += 1
-          ref_profile["ref_balance"] += 5.0  # Нараховуємо 5 грн бонуса за друга
+          ref_profile["ref_balance"] += 5.0
 
           try:
             await bot.send_message(
@@ -659,4 +657,11 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
     await callback.message.edit_text(
         text="❌ **[СТАТУС: ВІДХИЛЕНО ❌]**", parse_mode="Markdown"
     )
-  exc
+  except Exception:
+    pass
+  await callback.answer("Ви відхилили оплату.")
+
+
+# --- Написання відгуку ---
+@router.callback_query(F.data.startswith("leave_yes_"))
+async def review_yes
