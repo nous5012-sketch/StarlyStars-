@@ -12,7 +12,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 TOKEN = "9113395557:AAHhrbAONJcW4Gl5gXfsPIcgSxmJLQeWMrQ"
 ADMIN_ID = 7648928411
 CHANNEL_USERNAME = "@StarlyStars_UKR"
-BOT_USERNAME = "@StarlyStars_bot"
+BOT_USERNAME = "@Shop_StarlyStars_bot"
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 router = Router()
