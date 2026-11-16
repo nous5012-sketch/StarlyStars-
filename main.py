@@ -55,8 +55,8 @@ def get_profile(user_id: int, user_name: str = "Користувач"):
         "name": user_name,
         "referred_count": 0,
         "referred_users": [],
-        "ref_balance": 0.0,  # Реферальний баланс у гривнях
-        "purchase_history": [],  # Історія успішних замовлень
+        "ref_balance": 0.0,
+        "purchase_history": [],
     }
   return user_profiles[user_id]
 
@@ -149,7 +149,6 @@ async def cmd_start(
           ref_profile["referred_users"].append(user_id)
           ref_profile["referred_count"] += 1
           ref_profile["ref_balance"] += 5.0
-
           try:
             await bot.send_message(
                 referrer_id,
@@ -225,7 +224,6 @@ async def start_broadcast_cb(callback: types.CallbackQuery, state: FSMContext):
 async def send_broadcast(message: types.Message, state: FSMContext):
   if message.from_user.id != ADMIN_ID:
     return
-
   await state.clear()
   await message.answer("⏳ Розсилка розпочалася...")
 
@@ -365,9 +363,7 @@ async def process_stars_buy(callback: types.CallbackQuery, state: FSMContext):
   )
   await state.set_state(OrderState.waiting_for_screenshot)
   await state.update_data(
-      item=f"{count} Stars ⭐",
-      stars_add=int(count),
-      prem_add=0,
+      item=f"{count} Stars ⭐", stars_add=int(count), prem_add=0
   )
   await callback.message.edit_text(text, reply_markup=back_button())
   await callback.answer()
@@ -664,4 +660,5 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
 
 # --- Написання відгуку ---
 @router.callback_query(F.data.startswith("leave_yes_"))
-async def review_yes
+async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext):
+  await state.set_stat
