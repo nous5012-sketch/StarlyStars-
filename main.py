@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-TOKEN = "9113395557:AAHhrbAONJcW4Gl5gXfsPIcgSxmJLQeWMrQ"
+TOKEN = "9113395557:AAHfuPsvL94J8i7EWkH6x2v8I3Jtjgmon94"
 ADMIN_ID = 7648928411
 CHANNEL_USERNAME = "@StarlyStars_UKR"
 BOT_USERNAME = "@Shop_StarlyStars_bot"
