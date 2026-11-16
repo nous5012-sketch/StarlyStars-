@@ -685,7 +685,7 @@ async def receive_review_text(
   await bot.send_message(ADMIN_ID, formatted_review)
   pending_orders.pop(user_id, None)
 
-.  await state.clear()
+  await state.clear()
   await message.answer(
       "Дякуємо за відгук ❤️\nГарного дня 💋", reply_markup=main_menu()
   )
