@@ -329,8 +329,6 @@ async def catalog_stars(message: types.Message, bot: Bot):
       ]
   )
   await message.answer("Виберіть кількість зірок:", reply_markup=kb)
-
-
 @router.callback_query(F.data.startswith("buy_stars_"))
 async def process_stars_buy(callback: types.CallbackQuery, state: FSMContext):
   _, _, count, price = callback.data.split("_")
@@ -620,7 +618,9 @@ async def admin_decline(callback: types.CallbackQuery, bot: Bot):
   except Exception:
     pass
   await callback.answer("Ви відхилили оплату.")
-  @router.callback_query(F.data.startswith("leave_yes_"))
+
+
+@router.callback_query(F.data.startswith("leave_yes_"))
 async def review_yes_cb(callback: types.CallbackQuery, state: FSMContext):
   await state.set_state(ReviewState.waiting_for_review_text)
   await callback.message.edit_text(
@@ -685,7 +685,7 @@ async def receive_review_text(
   await bot.send_message(ADMIN_ID, formatted_review)
   pending_orders.pop(user_id, None)
 
-  await state.clear()
+.  await state.clear()
   await message.answer(
       "Дякуємо за відгук ❤️\nГарного дня 💋", reply_markup=main_menu()
   )
@@ -714,5 +714,3 @@ async def main():
 
 if __name__ == "__main__":
   asyncio.run(main())
-  
-                
