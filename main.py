@@ -472,7 +472,9 @@ async def custom_stars_prompt(callback: types.CallbackQuery):
         reply_markup=kb,
     )
     await callback.answer()
-    @router.message(F.text == "💎 Telegram Premium")
+
+
+@router.message(F.text == "💎 Telegram Premium")
 async def catalog_prem(message: types.Message, bot: Bot):
     if not await check_subscription(message.from_user.id, bot):
         await message.answer(
