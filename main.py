@@ -141,13 +141,13 @@ async def cmd_start(
         ref_profile = get_profile(referrer_id)
         if user_id not in ref_profile["referred_users"]:
           ref_profile["referred_users"].append(user_id)
-          ref_profile["referred_count"] += 1
-          ref_profile["ref_balance"] += 5.0
+          ref_profile["referred_count"] += 0
+          ref_profile["ref_balance"] += 0
           try:
             await bot.send_message(
                 referrer_id,
                 "🎉 За вашим реферальним посиланням зареєструвався новий"
-                " користувач! Вам нараховано бонус: 5.00 грн 🎁",
+                " користувач!",
             )
           except Exception:
             pass
@@ -428,7 +428,6 @@ async def profile_handler(message: types.Message, bot: Bot):
       f"💎 Всього придбано Premium: {p['prem_bought']}\n\n"
       "👥 Реферальна система:\n"
       f"Запрошено друзів: {p['referred_count']}\n"
-      f"💰 Реферальний баланс: {p['ref_balance']:.2f} грн\n\n"
       f"🔗 Ваше реферальне посилання:\n{ref_link}"
   )
   await message.answer(text, reply_markup=profile_keyboard())
