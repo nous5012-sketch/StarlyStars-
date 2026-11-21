@@ -260,7 +260,7 @@ async def process_stars_buy(callback: types.CallbackQuery, state: FSMContext):
     _, _, count, price = callback.data.split("_")
     text = (
         f"Кількість: {count} зірок\nЦіна: {price} грн\n\n"
-        "Реквізити карти для оплати:\n5168745149435791\nШевченко М.\n\n"
+        "Реквізити карти для оплати:\n5232 4410 2296 7819\nШевченко М.\n\n"
         "Після оплати, скиньте скріншот оплати сюди та очікуйте підтвердження."
     )
     await state.set_state(OrderState.waiting_for_screenshot)
@@ -293,7 +293,7 @@ async def process_prem_buy(callback: types.CallbackQuery, state: FSMContext):
     _, _, period, price = callback.data.split("_")
     text = (
         f"Кількість: Telegram Premium на {period}\nЦіна: {price} грн\n\n"
-        "Реквізити карти для оплати:\n5168745149435791\nШевченко М.\n\n"
+        "Реквізити карти для оплати:\n5232 4410 2296 7819\nШевченко М.\n\n"
         "Після оплати, скиньте скріншот оплати сюди та очікуйте підтвердження."
     )
     await state.set_state(OrderState.waiting_for_screenshot)
